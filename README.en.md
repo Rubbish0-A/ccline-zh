@@ -10,18 +10,24 @@
 
 ---
 
+## Preview
+
+```
+#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ ⎇ main │ 上下文 [███░░░░░░░] 34% │ 5h 70%剩 7d 88%剩
+ session    model       dir              branch    context bar           quota left
+```
+
+- **Session short code** `#a1b2c3d4`: tell sessions apart across terminals; `claude -r a1b2c3d4` resumes from any directory.
+- **Progress bars**: context/quota go green → yellow → red as they fill (context above ~85% noticeably degrades Claude — seeing it early matters).
+
 ## Why this one
 
 Mature tools like [ccstatusline](https://github.com/sirmalloc/ccstatusline) are great but almost all are
-**mac/bash-first, English-only, and depend on npm/npx**. ccline-zh fills the gap they leave:
+**mac/bash-first, English-only, npm/npx-dependent**. ccline-zh fills the gap:
 
-- **Zero-dependency single file** — one `statusline.js`, `node` runs it from anywhere, no `npm install`.
-- **Windows first-class** — PowerShell installer, absolute-path handling, branch via reading `.git/HEAD`
-  (no git CLI needed), UTF-8/BOM tolerant.
-- **Chinese labels** — model / dir / quota / context in Chinese.
-- **Never blanks out** — per-widget fallback; missing data is hidden, not errored; exit code always 0.
-- **Accurate data** — distinguishes *cumulative session tokens* from *current context usage*; uses
-  `context_window_size` instead of a hardcoded 200K (works with 1M models).
+- **Zero-dependency single file** — one `statusline.js`, runs anywhere with `node`, no `npm install`.
+- **Windows first-class** — PowerShell installer, absolute-path handling, branch via reading `.git/HEAD`, UTF-8/BOM tolerant.
+- **Chinese labels**, **never blanks out** (per-widget fallback, exit code always 0), **accurate data** (cumulative tokens vs current context; uses `context_window_size`, not hardcoded 200K).
 
 ## Install
 
@@ -33,38 +39,38 @@ Mature tools like [ccstatusline](https://github.com/sirmalloc/ccstatusline) are 
 /ccline-zh:setup
 ```
 
-`setup` resolves the script's absolute path, backs up your `settings.json`, and merges only the
-`statusLine` field. Restart Claude Code afterwards.
-
 ### B. Bare single file
 
 ```sh
 git clone https://github.com/Rubbish0-A/ccline-zh.git
 cd ccline-zh
 sh scripts/install.sh                                            # macOS / Linux
-# or: powershell -ExecutionPolicy Bypass -File scripts\install.ps1   (Windows)
+# powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows
 ```
 
-## Configuration
+## Configure & use
 
-Copy `statusline.config.example.json` to `~/.claude/ccline-zh.config.json` and edit. The `widgets`
-array order is the display order; remove an item or set `enabled:false` to hide it. Invalid values
-fall back to defaults. Set `NO_COLOR=1` to disable colors.
+- **Start**: shows automatically once Claude Code starts — no separate process.
+- **Disable**: run `uninstall.*`, or delete the `statusLine` field in `~/.claude/settings.json`.
+- **Toggle a widget**: copy `statusline.config.example.json` → `~/.claude/ccline-zh.config.json`, set a widget's `"enabled"` to `true`/`false`, save — **no restart**. ⚠️ The `widgets` array **replaces** the default wholesale, so list every widget you want.
+- **Resume by short code**: the leading `#a1b2c3d4` is the session id prefix; run `claude -r a1b2c3d4` from any directory.
+- **No color**: set `NO_COLOR=1`.
+
+## Widgets
+
+Default on: `session` · `model` · `dir` · `git` · `context`(bar) · `rateLimit`.
+Default off (enable on demand): `lines` · `tokens` · `cost` · `duration` · `blockTimer`(quota reset countdown) · `worktree` · `outputStyle` · `version`.
 
 ## Known limitations
 
-- **"Install and use" needs one `setup` run** — plugins can't inject `statusLine` (a `settings.json`-only
-  field); every status line plugin writes it via a setup command. We write an **absolute path** to work
-  around [#52079](https://github.com/anthropics/claude-code/issues/52079).
-- **`tokens` is a cumulative session value** (includes cache, not reduced by auto-compact). Use `context`
-  for "how much context is left".
-- **`rateLimit` is claude.ai-subscription only** and appears after at least one API response; hidden for
-  API-key users (context takes its place).
+- **"Install and use" needs one `setup` run** — plugins can't inject `statusLine`; setup writes an **absolute path** to work around [#52079](https://github.com/anthropics/claude-code/issues/52079).
+- **`tokens` is cumulative** (incl. cache, [#13783](https://github.com/anthropics/claude-code/issues/13783)); use `context` for "how much is left".
+- **`rateLimit` / `blockTimer` are claude.ai-subscription only**, appear after one API response; hidden for API-key users.
 
 ## Development
 
 ```sh
-npm test          # node:test units + integration (25 cases)
+npm test          # node:test units + integration (35 cases)
 npm run check     # node --check across src/scripts/test
 npm run build     # bundle src/ into a self-contained statusline.js
 ```

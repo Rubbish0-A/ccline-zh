@@ -1,6 +1,6 @@
 {
   "name": "ccline-zh",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "零依赖单文件、Windows/中文友好的 Claude Code 状态栏。Zero-dependency, Windows-first, Chinese-friendly status line for Claude Code.",
   "type": "commonjs",
   "main": "statusline.js",

@@ -6,10 +6,11 @@ const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { fmtCount, shortenPath, fmtDuration, bar } = require('../src/format');
+const { fmtCount, shortenPath, fmtDuration, bar, fmtCountdown } = require('../src/format');
 const { colorByRemaining, paint, colorEnabled } = require('../src/colors');
 const { mergeConfig, DEFAULT_CONFIG, clone } = require('../src/config');
 const { getBranch } = require('../src/git');
+const widgets = require('../src/widgets');
 
 // ───────────────────────── format ─────────────────────────
 test('fmtCount: K/M 后缀与边界', () => {
@@ -136,4 +137,74 @@ test('getBranch: worktree 风格 .git 文件（gitdir 指向）', () => {
     fs.rmSync(real, { recursive: true, force: true });
     fs.rmSync(wt, { recursive: true, force: true });
   }
+});
+
+// ───────────────────────── session widget ─────────────────────────
+const NOCOLOR = { colorOn: false };
+
+test('session: session_id 优先取前 8', () => {
+  assert.strictEqual(
+    widgets.session({ session_id: 'a1b2c3d4-5678-90ab' }, {}, NOCOLOR),
+    '#a1b2c3d4'
+  );
+});
+
+test('session: 无 session_id 回退 transcript 文件名（含 Windows 路径）', () => {
+  assert.strictEqual(
+    widgets.session({ transcript_path: '/home/u/p/deadbeef-1111.jsonl' }, {}, NOCOLOR),
+    '#deadbeef'
+  );
+  assert.strictEqual(
+    widgets.session({ transcript_path: 'C:\\Users\\x\\cafe1234-2222.jsonl' }, {}, NOCOLOR),
+    '#cafe1234'
+  );
+});
+
+test('session: 两者都缺 → null', () => {
+  assert.strictEqual(widgets.session({}, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.session({ session_id: '' }, {}, NOCOLOR), null);
+});
+
+test('dir: useProjectDir 切换到 project_dir', () => {
+  const input = { workspace: { current_dir: '/a/cur', project_dir: '/b/proj' } };
+  const ctx = { colorOn: false, pathSegments: 2 };
+  assert.strictEqual(widgets.dir(input, { useProjectDir: false }, ctx), 'a/cur');
+  assert.strictEqual(widgets.dir(input, { useProjectDir: true }, ctx), 'b/proj');
+});
+
+// ───────────────────────── fmtCountdown + 扩展 widget ─────────────────────────
+test('fmtCountdown: 正常/已过期/缺失/超界（注入 nowMs）', () => {
+  const now = 1_000_000_000; // ms → 1_000_000 s
+  assert.strictEqual(fmtCountdown(1_000_000 + 3600, now), '1h0m后重置');
+  assert.strictEqual(fmtCountdown(1_000_000 + 1800, now), '30m后重置');
+  assert.strictEqual(fmtCountdown(999_000, now), '即将重置');
+  assert.strictEqual(fmtCountdown(undefined, now), null);
+  assert.strictEqual(fmtCountdown('x', now), null);
+  assert.strictEqual(fmtCountdown(1_000_000 + 8 * 24 * 3600, now), null);
+});
+
+test('blockTimer: 有 resets_at→含标签且非 null；缺失→null', () => {
+  const future = Math.floor(Date.now() / 1000) + 7200;
+  const out = widgets.blockTimer(
+    { rate_limits: { five_hour: { resets_at: future } } }, {}, NOCOLOR
+  );
+  assert.ok(out && out.includes('5h') && out.includes('后重置'));
+  assert.strictEqual(widgets.blockTimer({}, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.blockTimer({ rate_limits: { five_hour: {} } }, {}, NOCOLOR), null);
+});
+
+test('worktree: 有 git_worktree 显示，无则 null', () => {
+  assert.strictEqual(
+    widgets.worktree({ workspace: { git_worktree: 'feat-x' } }, {}, NOCOLOR), 'wt:feat-x'
+  );
+  assert.strictEqual(widgets.worktree({ workspace: {} }, {}, NOCOLOR), null);
+});
+
+test('outputStyle / version', () => {
+  assert.strictEqual(
+    widgets.outputStyle({ output_style: { name: 'Explanatory' } }, {}, NOCOLOR), 'Explanatory'
+  );
+  assert.strictEqual(widgets.outputStyle({}, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.version({ version: '2.1.90' }, {}, NOCOLOR), '2.1.90');
+  assert.strictEqual(widgets.version({}, {}, NOCOLOR), null);
 });

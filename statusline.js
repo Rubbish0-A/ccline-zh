@@ -123,7 +123,21 @@ function bar(usedPct, width = 10) {
   return '[' + '█'.repeat(filled) + '░'.repeat(width - filled) + ']';
 }
 
-module.exports = { fmtCount, shortenPath, fmtDuration, bar };
+/**
+ * 距 resetSec（unix 秒）的倒计时。nowMs 可注入便于测试（默认 Date.now()）。
+ * 已过期→'即将重置'；非数字/缺失→null；超 7 天（时钟异常）→null。
+ */
+function fmtCountdown(resetSec, nowMs = Date.now()) {
+  if (!Number.isFinite(resetSec)) return null;
+  const diffSec = Math.round(resetSec - nowMs / 1000);
+  if (diffSec <= 0) return '即将重置';
+  if (diffSec > 7 * 24 * 3600) return null; // 上界保护
+  const h = Math.floor(diffSec / 3600);
+  const m = Math.floor((diffSec % 3600) / 60);
+  return (h > 0 ? h + 'h' + m + 'm' : m + 'm') + '后重置';
+}
+
+module.exports = { fmtCount, shortenPath, fmtDuration, bar, fmtCountdown };
 
 } };
 
@@ -237,15 +251,22 @@ const DEFAULT_CONFIG = {
   pathSegments: 2,
   thresholds: { warn: 50, danger: 20 },
   widgets: [
+    // ── 默认开（6 段，遵循"精选而非堆砌"）──
+    { type: 'session', enabled: true, label: '', color: 'gray' },
     { type: 'model', enabled: true, label: '', color: 'cyan' },
-    { type: 'dir', enabled: true, label: '', color: 'yellow' },
+    { type: 'dir', enabled: true, label: '', color: 'yellow', useProjectDir: false },
     { type: 'git', enabled: true, label: '', color: 'magenta', dirty: false, symbol: '⎇ ' },
-    { type: 'lines', enabled: true, label: '' },
-    { type: 'context', enabled: true, label: '上下文', bar: false },
-    { type: 'tokens', enabled: true, label: '用量', color: 'blue' },
-    { type: 'rateLimit', enabled: true, label: '' },
+    { type: 'context', enabled: true, label: '上下文', bar: true },
+    { type: 'rateLimit', enabled: true, label: '', bar: false },
+    // ── 默认关（按需在 ccline-zh.config.json 里设 enabled:true）──
+    { type: 'lines', enabled: false, label: '' },
+    { type: 'tokens', enabled: false, label: '用量', color: 'blue' },
     { type: 'cost', enabled: false, label: '', color: 'green' },
     { type: 'duration', enabled: false, label: '时长', color: 'gray' },
+    { type: 'blockTimer', enabled: false, label: '', window: 'five_hour', color: 'gray' },
+    { type: 'worktree', enabled: false, label: '', color: 'magenta' },
+    { type: 'outputStyle', enabled: false, label: '', color: 'gray' },
+    { type: 'version', enabled: false, label: 'v', color: 'gray' },
   ],
 };
 
@@ -346,12 +367,29 @@ __mods['widgets'] = { fn: function (module, exports, require) {
  */
 
 const { paint, colorByRemaining } = __require('colors');
-const { fmtCount, shortenPath, fmtDuration, bar } = __require('format');
+const { fmtCount, shortenPath, fmtDuration, bar, fmtCountdown } = __require('format');
 const gitlib = __require('git');
 
 /** label 前缀：有 label 则 "label "，否则空。 */
 function pre(cfg) {
   return cfg.label ? cfg.label + ' ' : '';
+}
+
+/**
+ * 会话短码：多终端识别 + `claude -r <短码>` 续会话。
+ * 优先 session_id；回退用正则从 transcript_path 提文件名（不用 path.basename，避免
+ * 跨平台路径差异：Linux 上对 Windows 反斜杠路径 basename 会出错）。
+ */
+function session(input, cfg, ctx) {
+  let id = null;
+  if (input && typeof input.session_id === 'string' && input.session_id) {
+    id = input.session_id;
+  } else if (input && typeof input.transcript_path === 'string') {
+    const m = input.transcript_path.match(/([^/\\]+)\.jsonl$/);
+    if (m) id = m[1];
+  }
+  if (!id) return null;
+  return pre(cfg) + paint(cfg.color || 'gray', '#' + id.slice(0, 8), ctx.colorOn);
 }
 
 function model(input, cfg, ctx) {
@@ -361,8 +399,11 @@ function model(input, cfg, ctx) {
 }
 
 function dir(input, cfg, ctx) {
+  const ws = (input && input.workspace) || {};
+  // useProjectDir=true 用会话启动目录（cd 后不变，更适合标识"属于哪个项目"）
   const d =
-    (input && input.workspace && input.workspace.current_dir) ||
+    (cfg.useProjectDir && ws.project_dir) ||
+    ws.current_dir ||
     (input && input.cwd);
   const short = shortenPath(d, ctx.pathSegments);
   if (!short) return null;
@@ -428,10 +469,12 @@ function rateLimit(input, cfg, ctx) {
   for (const w of windows) {
     const obj = rl[w.key];
     if (obj && typeof obj.used_percentage === 'number') {
-      const rem = Math.round(100 - obj.used_percentage);
-      parts.push(
-        w.tag + ' ' + paint(colorByRemaining(rem, ctx.thresholds), rem + '%剩', ctx.colorOn)
-      );
+      const used = Math.round(obj.used_percentage);
+      const rem = 100 - used;
+      const color = colorByRemaining(rem, ctx.thresholds);
+      // bar 按"已用"填充（条满=快耗尽=红），与"X%剩"文字方向一致（用得少→条空→安全）
+      const body = (cfg.bar ? bar(used) + ' ' : '') + rem + '%剩';
+      parts.push(w.tag + ' ' + paint(color, body, ctx.colorOn));
     }
   }
   if (parts.length === 0) return null;
@@ -451,7 +494,42 @@ function duration(input, cfg, ctx) {
   return pre(cfg) + paint(cfg.color || 'gray', s, ctx.colorOn);
 }
 
-module.exports = { model, dir, git, lines, tokens, context, rateLimit, cost, duration };
+/** 额度重置倒计时：读 rate_limits[window].resets_at（默认 5h 窗口）。 */
+function blockTimer(input, cfg, ctx) {
+  const rl = input && input.rate_limits;
+  if (!rl) return null;
+  const win = cfg.window || 'five_hour';
+  const obj = rl[win];
+  if (!obj || typeof obj.resets_at !== 'number') return null;
+  const s = fmtCountdown(obj.resets_at);
+  if (!s) return null;
+  const tag = win === 'seven_day' ? '7d' : '5h';
+  return pre(cfg) + paint(cfg.color || 'gray', tag + ' ' + s, ctx.colorOn);
+}
+
+/** git worktree 名（仅在 linked worktree 里有值）。 */
+function worktree(input, cfg, ctx) {
+  const wt = input && input.workspace && input.workspace.git_worktree;
+  if (!wt) return null;
+  return pre(cfg) + paint(cfg.color || 'magenta', 'wt:' + wt, ctx.colorOn);
+}
+
+function outputStyle(input, cfg, ctx) {
+  const name = input && input.output_style && input.output_style.name;
+  if (!name) return null;
+  return pre(cfg) + paint(cfg.color || 'gray', String(name), ctx.colorOn);
+}
+
+function version(input, cfg, ctx) {
+  const v = input && input.version;
+  if (!v) return null;
+  return pre(cfg) + paint(cfg.color || 'gray', String(v), ctx.colorOn);
+}
+
+module.exports = {
+  session, model, dir, git, lines, tokens, context, rateLimit, cost, duration,
+  blockTimer, worktree, outputStyle, version,
+};
 
 } };
 

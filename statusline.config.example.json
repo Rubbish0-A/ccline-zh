@@ -1,18 +1,23 @@
 {
-  "//": "ccline-zh 配置。复制为 ~/.claude/ccline-zh.config.json 后编辑。widgets 数组顺序=显示顺序；删除某项或设 enabled:false 即隐藏。可用颜色：cyan green yellow red blue magenta gray white。thresholds 为剩余百分比阈值（剩余<danger 红，<warn 黄，否则绿）。",
+  "//": "ccline-zh 配置。复制为 ~/.claude/ccline-zh.config.json 后编辑，保存即生效、无需重启。widgets 数组顺序=显示顺序；改 enabled:true/false 开关（推荐改 enabled 而非删行）。注意：本数组整体替换默认，要写全你想显示的所有 widget。可用颜色：cyan green yellow red blue magenta gray white。thresholds 为剩余百分比阈值（剩余<danger 红，<warn 黄，否则绿）。",
   "separator": " │ ",
   "separatorColor": "gray",
   "pathSegments": 2,
   "thresholds": { "warn": 50, "danger": 20 },
   "widgets": [
+    { "type": "session", "enabled": true, "label": "", "color": "gray" },
     { "type": "model", "enabled": true, "label": "", "color": "cyan" },
-    { "type": "dir", "enabled": true, "label": "", "color": "yellow" },
+    { "type": "dir", "enabled": true, "label": "", "color": "yellow", "useProjectDir": false },
     { "type": "git", "enabled": true, "label": "", "color": "magenta", "dirty": false, "symbol": "⎇ " },
-    { "type": "lines", "enabled": true, "label": "" },
-    { "type": "context", "enabled": true, "label": "上下文", "bar": false },
-    { "type": "tokens", "enabled": true, "label": "用量", "color": "blue" },
-    { "type": "rateLimit", "enabled": true, "label": "" },
+    { "type": "context", "enabled": true, "label": "上下文", "bar": true },
+    { "type": "rateLimit", "enabled": true, "label": "", "bar": false },
+    { "type": "lines", "enabled": false, "label": "" },
+    { "type": "tokens", "enabled": false, "label": "用量", "color": "blue" },
     { "type": "cost", "enabled": false, "label": "", "color": "green" },
-    { "type": "duration", "enabled": false, "label": "时长", "color": "gray" }
+    { "type": "duration", "enabled": false, "label": "时长", "color": "gray" },
+    { "type": "blockTimer", "enabled": false, "label": "", "window": "five_hour", "color": "gray" },
+    { "type": "worktree", "enabled": false, "label": "", "color": "magenta" },
+    { "type": "outputStyle", "enabled": false, "label": "", "color": "gray" },
+    { "type": "version", "enabled": false, "label": "v", "color": "gray" }
   ]
 }

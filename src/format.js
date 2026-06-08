@@ -43,4 +43,18 @@ function bar(usedPct, width = 10) {
   return '[' + '█'.repeat(filled) + '░'.repeat(width - filled) + ']';
 }
 
-module.exports = { fmtCount, shortenPath, fmtDuration, bar };
+/**
+ * 距 resetSec（unix 秒）的倒计时。nowMs 可注入便于测试（默认 Date.now()）。
+ * 已过期→'即将重置'；非数字/缺失→null；超 7 天（时钟异常）→null。
+ */
+function fmtCountdown(resetSec, nowMs = Date.now()) {
+  if (!Number.isFinite(resetSec)) return null;
+  const diffSec = Math.round(resetSec - nowMs / 1000);
+  if (diffSec <= 0) return '即将重置';
+  if (diffSec > 7 * 24 * 3600) return null; // 上界保护
+  const h = Math.floor(diffSec / 3600);
+  const m = Math.floor((diffSec % 3600) / 60);
+  return (h > 0 ? h + 'h' + m + 'm' : m + 'm') + '后重置';
+}
+
+module.exports = { fmtCount, shortenPath, fmtDuration, bar, fmtCountdown };

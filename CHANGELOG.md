@@ -2,6 +2,23 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-06-08
+
+### 新增
+- `session` widget：显示会话短码 `#xxxxxxxx`（session_id 前 8 位），配合 `claude -r <短码>` 在多终端间快速 resume——跨目录有效。默认开、放最前。
+- `context` 升级为进度条 `[███░░░░░░░] 34%`（默认开），保留阈值绿/黄/红。
+- `rateLimit` 支持可选进度条（配置 `bar:true`）。
+- `blockTimer` widget：5h / 7d 额度重置倒计时（如 `5h 3h10m后重置`），默认关。
+- `worktree` / `outputStyle` / `version` widget，默认关。
+- `dir` 新增 `useProjectDir` 选项：用会话启动目录（cd 后不变），更适合标识"属于哪个项目"。
+
+### 变更
+- **默认显示集调整为 6 段**：`session · model · dir · git · context(进度条) · rateLimit`。
+- `lines` / `tokens` 改为**默认关**（按需在 `ccline-zh.config.json` 设 `enabled:true`）。无配置文件的用户会看到默认行变化；**有配置文件的用户不受影响**（其 widgets 列表不含新 type）。
+
+### 文档
+- README 中英新增「配置与使用」章节：如何启动 / 关闭整个状态栏 / 开关单个 widget / 用短码 resume / 排查。
+
 ## [0.1.0] - 2026-06-08
 
 首次发布。

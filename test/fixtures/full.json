@@ -1,6 +1,6 @@
 {
   "hook_event_name": "Status",
-  "session_id": "demo-session",
+  "session_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
   "transcript_path": "",
   "cwd": "E:/AI售前工程师工作区/ccline-zh",
   "model": { "id": "claude-opus-4-8", "display_name": "Opus 4.8" },
