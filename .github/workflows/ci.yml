@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }} · node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Syntax check (node --check via scripts/check.js)
+        run: node scripts/check.js
+
+      - name: Unit + integration tests (node:test)
+        run: node --test
+
+      - name: Build single-file bundle
+        run: node scripts/bundle.js
+
+      - name: Verify bundle runs and is self-contained
+        shell: bash
+        run: |
+          # 用 bash 统一重定向（Windows runner 默认 pwsh 不支持 < 重定向）
+          out=$(node statusline.js < test/fixtures/full.json)
+          echo "bundle output: $out"
+          echo "$out" | grep -q "Opus 4.8" || { echo "bundle 输出缺少预期内容"; exit 1; }

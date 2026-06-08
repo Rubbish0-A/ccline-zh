@@ -1,0 +1,9 @@
+{
+  "separator": " | ",
+  "pathSegments": 1,
+  "widgets": [
+    { "type": "model", "enabled": true, "label": "模型", "color": "green" },
+    { "type": "context", "enabled": true, "label": "ctx", "bar": true },
+    { "type": "cost", "enabled": true, "label": "", "color": "yellow" }
+  ]
+}

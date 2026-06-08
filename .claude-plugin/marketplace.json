@@ -1,0 +1,11 @@
+{
+  "name": "ccline-zh",
+  "owner": { "name": "cjh" },
+  "plugins": [
+    {
+      "name": "ccline-zh",
+      "source": "./",
+      "description": "零依赖单文件、Windows/中文友好的 Claude Code 状态栏（statusline）"
+    }
+  ]
+}

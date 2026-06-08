@@ -1,0 +1,31 @@
+{
+  "hook_event_name": "Status",
+  "session_id": "demo-session",
+  "transcript_path": "",
+  "cwd": "E:/AI售前工程师工作区/ccline-zh",
+  "model": { "id": "claude-opus-4-8", "display_name": "Opus 4.8" },
+  "workspace": {
+    "current_dir": "E:/AI售前工程师工作区/ccline-zh/src",
+    "project_dir": "E:/AI售前工程师工作区/ccline-zh"
+  },
+  "version": "2.1.90",
+  "output_style": { "name": "default" },
+  "cost": {
+    "total_cost_usd": 0.42,
+    "total_duration_ms": 754000,
+    "total_api_duration_ms": 230000,
+    "total_lines_added": 156,
+    "total_lines_removed": 23
+  },
+  "context_window": {
+    "used_percentage": 34,
+    "remaining_percentage": 66,
+    "context_window_size": 200000,
+    "total_input_tokens": 1250000,
+    "total_output_tokens": 45000
+  },
+  "rate_limits": {
+    "five_hour": { "used_percentage": 30, "resets_at": 1774200000 },
+    "seven_day": { "used_percentage": 12, "resets_at": 1774800000 }
+  }
+}

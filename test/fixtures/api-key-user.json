@@ -1,0 +1,12 @@
+{
+  "model": { "display_name": "Sonnet 4.6" },
+  "workspace": { "current_dir": "/home/user/project" },
+  "cost": { "total_cost_usd": 0.05, "total_lines_added": 10, "total_lines_removed": 3 },
+  "context_window": {
+    "used_percentage": 15,
+    "remaining_percentage": 85,
+    "context_window_size": 200000,
+    "total_input_tokens": 30000,
+    "total_output_tokens": 8000
+  }
+}

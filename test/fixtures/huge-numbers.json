@@ -1,0 +1,12 @@
+{
+  "model": { "display_name": "Opus 4.8" },
+  "workspace": { "current_dir": "/x" },
+  "cost": { "total_cost_usd": 12.3456, "total_lines_added": 999999, "total_lines_removed": 123456 },
+  "context_window": {
+    "used_percentage": 99,
+    "remaining_percentage": 1,
+    "context_window_size": 200000,
+    "total_input_tokens": 5000000,
+    "total_output_tokens": 2500000
+  }
+}

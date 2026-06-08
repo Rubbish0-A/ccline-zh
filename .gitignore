@@ -1,0 +1,21 @@
+# 依赖（本项目零运行依赖，仅防御性忽略）
+node_modules/
+
+# 日志与临时
+*.log
+*.tmp
+*.bak
+settings.json.bak
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 注意：以下需要提交，勿忽略
+#  - statusline.js        （bundle 产物，裸 copy 用户直接下载它）
+#  - test/snapshots/      （快照测试基线）

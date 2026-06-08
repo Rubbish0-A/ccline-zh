@@ -1,0 +1,10 @@
+{
+  "name": "ccline-zh",
+  "description": "零依赖单文件、Windows/中文友好的 Claude Code 状态栏。安装后运行 /ccline-zh:setup 即可启用。",
+  "version": "0.1.0",
+  "author": { "name": "cjh" },
+  "homepage": "https://github.com/Rubbish0-A/ccline-zh",
+  "repository": "https://github.com/Rubbish0-A/ccline-zh",
+  "license": "MIT",
+  "keywords": ["statusline", "claude-code", "windows", "chinese", "中文状态栏"]
+}

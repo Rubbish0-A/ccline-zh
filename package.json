@@ -1,0 +1,52 @@
+{
+  "name": "ccline-zh",
+  "version": "0.1.0",
+  "description": "零依赖单文件、Windows/中文友好的 Claude Code 状态栏。Zero-dependency, Windows-first, Chinese-friendly status line for Claude Code.",
+  "type": "commonjs",
+  "main": "statusline.js",
+  "bin": {
+    "ccline-zh": "statusline.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node scripts/check.js",
+    "build": "node scripts/bundle.js",
+    "demo": "node statusline.js < test/fixtures/full.json"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "statusline",
+    "status-line",
+    "windows",
+    "chinese",
+    "中文",
+    "zero-dependency",
+    "cli"
+  ],
+  "author": "cjh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rubbish0-A/ccline-zh.git"
+  },
+  "homepage": "https://github.com/Rubbish0-A/ccline-zh#readme",
+  "bugs": {
+    "url": "https://github.com/Rubbish0-A/ccline-zh/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "statusline.js",
+    "statusline.config.example.json",
+    "src/",
+    "scripts/install.ps1",
+    "scripts/install.sh",
+    "scripts/uninstall.ps1",
+    "scripts/uninstall.sh",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ]
+}
