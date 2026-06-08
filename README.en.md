@@ -13,8 +13,8 @@
 ## Preview
 
 ```
-#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ ⎇ main │ 上下文 [███░░░░░░░] 34% │ 5h 70%剩 7d 88%剩
- session    model       dir              branch    context bar           quota left
+#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ ⎇ main │ +156/-23 │ 上下文 [███░░░░░░░] 34% │ 用量 1.3M↑45K↓ │ 5h 70%剩 7d 88%剩
+ session    model       dir              branch    lines       context bar           tokens         quota left
 ```
 
 - **Session short code** `#a1b2c3d4`: tell sessions apart across terminals; `claude -r a1b2c3d4` resumes from any directory.
@@ -58,8 +58,8 @@ sh scripts/install.sh                                            # macOS / Linux
 
 ## Widgets
 
-Default on: `session` · `model` · `dir` · `git` · `context`(bar) · `rateLimit`.
-Default off (enable on demand): `lines` · `tokens` · `cost` · `duration` · `blockTimer`(quota reset countdown) · `worktree` · `outputStyle` · `version`.
+Default on: `session` · `model` · `dir` · `git` · `lines` · `context`(bar) · `tokens` · `rateLimit`.
+Default off (enable on demand): `cost` · `duration` · `blockTimer`(quota reset countdown) · `worktree` · `outputStyle` · `version`.
 
 ## Known limitations
 

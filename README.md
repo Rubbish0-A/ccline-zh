@@ -13,8 +13,8 @@
 ## 效果
 
 ```
-#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ ⎇ main │ 上下文 [███░░░░░░░] 34% │ 5h 70%剩 7d 88%剩
- 会话短码      模型         目录          分支       上下文进度条          额度剩余
+#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ ⎇ main │ +156/-23 │ 上下文 [███░░░░░░░] 34% │ 用量 1.3M↑45K↓ │ 5h 70%剩 7d 88%剩
+ 会话短码      模型         目录          分支    代码增删     上下文进度条          token用量       额度剩余
 ```
 
 - **会话短码** `#a1b2c3d4`：多终端时一眼区分会话，`claude -r a1b2c3d4` 任意目录续上。
@@ -85,8 +85,8 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows
 | `git` | `⎇ 分支`（可选 dirty `*`） | 读 `.git/HEAD` | **开** |
 | `context` | 上下文进度条 `[███░░░] 34%` | `context_window.used_percentage` | **开** |
 | `rateLimit` | `5h/7d 剩余%`（可选 `bar`） | `rate_limits.*.used_percentage` | **开** |
-| `lines` | `+增/-删` | `cost.total_lines_added/removed` | 关 |
-| `tokens` | 会话累计 `输入↑输出↓` | `context_window.total_input/output_tokens` | 关 |
+| `lines` | `+增/-删` | `cost.total_lines_added/removed` | **开** |
+| `tokens` | 会话累计 `输入↑输出↓` | `context_window.total_input/output_tokens` | **开** |
 | `cost` | `$花费` | `cost.total_cost_usd` | 关 |
 | `duration` | 会话时长 | `cost.total_duration_ms` | 关 |
 | `blockTimer` | 额度重置倒计时 `5h 3h10m后重置` | `rate_limits.*.resets_at` | 关 |

@@ -47,7 +47,7 @@ test('默认行（full, 去 git）: 精确整行', () => {
   const out = renderText(load('full.json'));
   assert.strictEqual(
     out,
-    '#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ 上下文 [███░░░░░░░] 34% │ 5h 70%剩 7d 88%剩'
+    '#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ +156/-23 │ 上下文 [███░░░░░░░] 34% │ 用量 1.3M↑45.0K↓ │ 5h 70%剩 7d 88%剩'
   );
 });
 

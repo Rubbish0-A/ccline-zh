@@ -251,16 +251,16 @@ const DEFAULT_CONFIG = {
   pathSegments: 2,
   thresholds: { warn: 50, danger: 20 },
   widgets: [
-    // ── 默认开（6 段，遵循"精选而非堆砌"）──
+    // ── 默认开（8 段：含最初要的 模型/代码增删/用量/额度 + 新增 会话短码/上下文进度条）──
     { type: 'session', enabled: true, label: '', color: 'gray' },
     { type: 'model', enabled: true, label: '', color: 'cyan' },
     { type: 'dir', enabled: true, label: '', color: 'yellow', useProjectDir: false },
     { type: 'git', enabled: true, label: '', color: 'magenta', dirty: false, symbol: '⎇ ' },
+    { type: 'lines', enabled: true, label: '' },
     { type: 'context', enabled: true, label: '上下文', bar: true },
+    { type: 'tokens', enabled: true, label: '用量', color: 'blue' },
     { type: 'rateLimit', enabled: true, label: '', bar: false },
     // ── 默认关（按需在 ccline-zh.config.json 里设 enabled:true）──
-    { type: 'lines', enabled: false, label: '' },
-    { type: 'tokens', enabled: false, label: '用量', color: 'blue' },
     { type: 'cost', enabled: false, label: '', color: 'green' },
     { type: 'duration', enabled: false, label: '时长', color: 'gray' },
     { type: 'blockTimer', enabled: false, label: '', window: 'five_hour', color: 'gray' },
@@ -631,7 +631,10 @@ async function main() {
     line = '';
   }
 
-  process.stdout.write((line || '') + '\n');
+  // 兜底：有效 JSON 但所有 widget 都无数据时，给最小标识而非空白状态栏
+  if (!line) line = paint('gray', 'ccline-zh', colorEnabled());
+
+  process.stdout.write(line + '\n');
 }
 
 // 仅在直接运行时驱动 stdin → 渲染 → 退出；被 require（测试）时只导出函数

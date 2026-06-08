@@ -35,7 +35,8 @@ test('full fixture 经真实进程 → 退出码 0 且含模型名', () => {
   assert.ok(r.stdout.includes('Opus 4.8'));
 });
 
-test('missing-fields 经进程 → 退出码 0（输出可为空但不报错）', () => {
+test('missing-fields 经进程 → 退出码 0 且兜底显示工具名（不空白）', () => {
   const r = run(fs.readFileSync(path.join(FIX, 'missing-fields.json'), 'utf8'));
   assert.strictEqual(r.status, 0);
+  assert.ok(r.stdout.includes('ccline-zh'), '渲染为空时应兜底显示工具名');
 });

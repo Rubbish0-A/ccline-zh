@@ -96,7 +96,10 @@ async function main() {
     line = '';
   }
 
-  process.stdout.write((line || '') + '\n');
+  // 兜底：有效 JSON 但所有 widget 都无数据时，给最小标识而非空白状态栏
+  if (!line) line = paint('gray', 'ccline-zh', colorEnabled());
+
+  process.stdout.write(line + '\n');
 }
 
 // 仅在直接运行时驱动 stdin → 渲染 → 退出；被 require（测试）时只导出函数

@@ -2,6 +2,14 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.1] - 2026-06-08
+
+### 修正
+- `lines`（代码增删）与 `tokens`（用量）改回**默认开**——v0.2.0 精简默认集时误把这两个用户核心字段默认关了，本版纠正。默认显示集恢复为 8 段：`session · model · dir · git · lines · context(进度条) · tokens · rateLimit`。
+
+### 健壮性
+- 有效 JSON 但所有 widget 都无数据时，兜底显示工具名 `ccline-zh`，而非空白状态栏。
+
 ## [0.2.0] - 2026-06-08
 
 ### 新增
