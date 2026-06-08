@@ -53,7 +53,8 @@ sh scripts/install.sh                                            # macOS / Linux
 - **Start**: shows automatically once Claude Code starts — no separate process.
 - **Disable**: run `uninstall.*`, or delete the `statusLine` field in `~/.claude/settings.json`.
 - **Toggle a widget**: copy `statusline.config.example.json` → `~/.claude/ccline-zh.config.json`, set a widget's `"enabled"` to `true`/`false`, save — **no restart**. ⚠️ The `widgets` array **replaces** the default wholesale, so list every widget you want.
-- **Resume by short code**: the leading `#a1b2c3d4` is the session id prefix; run `claude -r a1b2c3d4` from any directory.
+- **Session short code `#a1b2c3d4`**: the leading code is the session id prefix, mainly for telling sessions apart across terminals. To resume: `claude -c` (most recent in current dir), `claude -r` (interactive list), or `claude -r <session_id>` (by id; whether the 8-char prefix works depends on your Claude Code version — try it).
+- **`git` branch shows only inside a git repo**: hidden automatically when the directory has no `.git` (not a bug).
 - **No color**: set `NO_COLOR=1`.
 
 ## Widgets

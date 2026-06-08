@@ -69,7 +69,11 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows
 
 **调顺序**：`widgets` 数组顺序 = 显示顺序，调行序即可。
 
-**用短码 resume**：状态栏最前 `#a1b2c3d4` 是会话 id 前缀，**任意目录**跑 `claude -r a1b2c3d4` 即可续上该会话（不必回原目录）。
+**会话短码 `#a1b2c3d4` 怎么用**：它是当前会话 id 前 8 位，主要用于**多终端识别**——一眼看出每个终端是哪个会话、在哪个项目。续会话有三种方式：
+
+- `claude -c` —— 续**当前目录**最近的会话（最省事，不用记 id）
+- `claude -r` —— 弹交互列表，按目录 / 时间 / 摘要挑
+- `claude -r <session_id>` —— 按 id 直接续；短码能否当前缀直接用（`claude -r a1b2c3d4`）视 Claude Code 版本，可自行一试
 
 **配置不生效排查**：① 路径必须是 `~/.claude/ccline-zh.config.json`（不是脚本目录）② JSON 格式合法（损坏会静默回落默认值，不报错——格式错是最常见原因）。
 
@@ -98,7 +102,8 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows
 
 - **「安装即用」需要跑一次 `setup`** — Claude Code 插件机制不能直接注入 statusLine（它是 `settings.json` 专属字段），所有 statusLine 插件都靠 setup 命令写配置。本项目用 setup 写**绝对路径**规避 [#52079](https://github.com/anthropics/claude-code/issues/52079)（`${CLAUDE_PLUGIN_ROOT}` 不注入 statusLine 子进程）。
 - **`tokens` 是会话累计值**（含 cache，不随 auto-compact 回退，[#13783](https://github.com/anthropics/claude-code/issues/13783)）。想看「当前上下文还剩多少」用 `context`。
-- **`rateLimit` / `blockTimer` 仅 claude.ai 订阅可见**，且需当次会话发生过至少一次 API 响应；API Key 用户取不到，自动隐藏。
+- **`rateLimit` / `blockTimer` 仅 claude.ai 订阅可见**，且需当次会话发生过至少一次 API 响应；API Key / 中转用户取不到，自动隐藏。
+- **`git` 分支仅在 git 仓库目录显示**：当前目录（及其父级）没有 `.git` 时自动隐藏，不是 bug；`cd` 到任意 git 项目即出现。
 
 ## 卸载
 
