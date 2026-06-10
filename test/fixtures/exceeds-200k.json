@@ -1,0 +1,24 @@
+{
+  "session_id": "de171467-857f-46a5-b394-c2f1a3fedf93",
+  "transcript_path": "",
+  "effort": { "level": "xhigh" },
+  "model": { "id": "claude-fable-5", "display_name": "Fable 5" },
+  "workspace": { "current_dir": "C:\\Users\\issuser" },
+  "version": "2.1.170",
+  "context_window": {
+    "total_input_tokens": 220648,
+    "total_output_tokens": 1490,
+    "context_window_size": 200000,
+    "current_usage": {
+      "input_tokens": 189,
+      "output_tokens": 1490,
+      "cache_creation_input_tokens": 3609,
+      "cache_read_input_tokens": 216850
+    },
+    "used_percentage": 100,
+    "remaining_percentage": 0
+  },
+  "exceeds_200k_tokens": true,
+  "fast_mode": false,
+  "thinking": { "enabled": true }
+}

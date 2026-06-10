@@ -22,16 +22,21 @@ const DEFAULT_CONFIG = {
   pathSegments: 2,
   thresholds: { warn: 50, danger: 20 },
   widgets: [
-    // ── 默认开（8 段：含最初要的 模型/代码增删/用量/额度 + 新增 会话短码/上下文进度条）──
+    // ── 默认开（10 段，其中 bigContext / rateLimit 条件显示）──
     { type: 'session', enabled: true, label: '', color: 'gray' },
     { type: 'model', enabled: true, label: '', color: 'cyan' },
+    { type: 'effort', enabled: true, label: '' },
     { type: 'dir', enabled: true, label: '', color: 'yellow', useProjectDir: false },
     { type: 'git', enabled: true, label: '', color: 'magenta', dirty: false, symbol: '⎇ ' },
     { type: 'lines', enabled: true, label: '' },
     { type: 'context', enabled: true, label: '上下文', bar: true },
+    { type: 'bigContext', enabled: true, label: '', color: 'magenta' },
     { type: 'tokens', enabled: true, label: '用量', color: 'blue' },
     { type: 'rateLimit', enabled: true, label: '', bar: false },
     // ── 默认关（按需在 ccline-zh.config.json 里设 enabled:true）──
+    { type: 'sessionName', enabled: false, label: '', color: 'white', maxLen: 12 },
+    { type: 'fastMode', enabled: false, label: '', color: 'yellow' },
+    { type: 'thinking', enabled: false, label: '', color: 'gray' },
     { type: 'cost', enabled: false, label: '', color: 'green' },
     { type: 'duration', enabled: false, label: '时长', color: 'gray' },
     { type: 'blockTimer', enabled: false, label: '', window: 'five_hour', color: 'gray' },

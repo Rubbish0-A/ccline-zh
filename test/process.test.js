@@ -29,10 +29,11 @@ test('空 stdin → 退出码 0', () => {
   assert.strictEqual(r.status, 0);
 });
 
-test('full fixture 经真实进程 → 退出码 0 且含模型名', () => {
+test('full fixture 经真实进程 → 退出码 0 且含模型名与 effort', () => {
   const r = run(fs.readFileSync(path.join(FIX, 'full.json'), 'utf8'));
   assert.strictEqual(r.status, 0);
-  assert.ok(r.stdout.includes('Opus 4.8'));
+  assert.ok(r.stdout.includes('Fable 5'));
+  assert.ok(r.stdout.includes('xhigh'));
 });
 
 test('missing-fields 经进程 → 退出码 0 且兜底显示工具名（不空白）', () => {

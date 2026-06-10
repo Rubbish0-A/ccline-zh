@@ -34,6 +34,8 @@ jobs:
         shell: bash
         run: |
           # 用 bash 统一重定向（Windows runner 默认 pwsh 不支持 < 重定向）
-          out=$(node statusline.js < test/fixtures/full.json)
+          # NO_COLOR 关 ANSI 使 grep 稳定；断言值与 test/fixtures/full.json 的
+          # model.display_name 联动——改 fixture 模型名时必须同步这里
+          out=$(NO_COLOR=1 node statusline.js < test/fixtures/full.json)
           echo "bundle output: $out"
-          echo "$out" | grep -q "Opus 4.8" || { echo "bundle 输出缺少预期内容"; exit 1; }
+          echo "$out" | grep -q "Fable 5" || { echo "bundle 输出缺少预期内容"; exit 1; }

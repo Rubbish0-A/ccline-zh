@@ -3,6 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const { render } = require('../src/statusline');
@@ -43,12 +44,29 @@ function renderText(input, cfg) {
   return stripAnsi(render(input, cfg || cfgNoGit()));
 }
 
-test('默认行（full, 去 git）: 精确整行', () => {
+test('默认行（full, 去 git）: 精确整行（effort 在 model 后；tokens 因无 transcript 隐藏）', () => {
   const out = renderText(load('full.json'));
   assert.strictEqual(
     out,
-    '#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ +156/-23 │ 上下文 [███░░░░░░░] 34% │ 用量 1.3M↑45.0K↓ │ 5h 70%剩 7d 88%剩'
+    '#a1b2c3d4 │ Fable 5 │ xhigh │ …/ccline-zh/src │ +156/-23 │ 上下文 [████░░░░░░] 43% │ 5h 70%剩 7d 88%剩'
   );
+});
+
+test('tokens 真累计: transcript fixture 增量统计 + 去重', () => {
+  const input = load('full.json');
+  input.transcript_path = path.join(FIX, 'transcript.jsonl');
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccline-render-test-'));
+  const cfg = {
+    separator: ' │ ',
+    separatorColor: 'gray',
+    pathSegments: 2,
+    thresholds: { warn: 50, danger: 20 },
+    widgets: [{ type: 'tokens', enabled: true, label: '用量', stateDir }],
+  };
+  // fixture：msg_01 重复两行（去重计一次 1110/5），msg_02 计 5000000/50000
+  assert.strictEqual(renderText(input, cfg), '用量 5.0M↑50.0K↓');
+  // 第二次渲染走 state 缓存热路径，结果一致
+  assert.strictEqual(renderText(input, cfg), '用量 5.0M↑50.0K↓');
 });
 
 test('context 进度条渲染', () => {
@@ -60,7 +78,7 @@ test('context 进度条渲染', () => {
     widgets: [{ type: 'context', enabled: true, label: '上下文', bar: true }],
   };
   const out = renderText(load('full.json'), cfg);
-  assert.strictEqual(out, '上下文 [███░░░░░░░] 34%');
+  assert.strictEqual(out, '上下文 [████░░░░░░] 43%');
 });
 
 test('rateLimit bar 模式: 已用条 + 剩余%', () => {
@@ -89,17 +107,42 @@ test('session-start: 无 session_id/context → 仅模型 + 目录', () => {
   assert.strictEqual(out, 'Opus 4.8 │ repo');
 });
 
-test('1m-context: used_percentage 不因 1M 窗口出错', () => {
-  const out = renderText(load('1m-context.json'), cfgFields(['context', 'tokens']));
+test('1m-context: used_percentage 不出错 + bigContext 显示 1M 标记', () => {
+  const out = renderText(load('1m-context.json'), cfgFields(['context', 'bigContext', 'tokens']));
   assert.ok(out.includes('上下文 8%'));
-  assert.ok(out.includes('用量 80.0K↑20.0K↓'));
+  assert.ok(out.includes('1M'));
+  assert.ok(!out.includes('用量'), '无 transcript 时 tokens 段应隐藏');
 });
 
-test('huge-numbers: 大数 K/M 化', () => {
-  const out = renderText(load('huge-numbers.json'), cfgFields(['lines', 'tokens', 'context']));
+test('huge-numbers: 大数格式化 + 200K 会话无 bigContext 标记', () => {
+  const out = renderText(load('huge-numbers.json'), cfgFields(['lines', 'bigContext', 'context']));
   assert.ok(out.includes('+999999/-123456'));
-  assert.ok(out.includes('用量 5.0M↑2.5M↓'));
   assert.ok(out.includes('上下文 99%'));
+  assert.ok(!out.includes('1M') && !out.includes('>200K'));
+});
+
+test('新 widget 内容: sessionName 原样 / thinking 指示 / fastMode=false 隐藏', () => {
+  const out = renderText(load('full.json'), cfgFields(['sessionName', 'fastMode', 'thinking']));
+  assert.strictEqual(out, '升级状态栏适配新模型 │ think');
+});
+
+test('exceeds-200k 实况 fixture: 百分比按 1M 重算 + 绝对量，>200K 标记同现', () => {
+  const out = renderText(load('exceeds-200k.json'), cfgFields(['model', 'context', 'bigContext']));
+  assert.ok(out.includes('Fable 5'));
+  assert.ok(out.includes('上下文 22% 220.6K'), `应显示 1M 口径百分比+绝对量，实际: ${out}`);
+  assert.ok(out.includes('>200K'));
+  assert.ok(!out.includes('100%'), '不应再显示被 cap 的 100%');
+});
+
+test('exceeds-200k + bar: 进度条按 1M 口径填充', () => {
+  const cfg = {
+    separator: ' │ ',
+    separatorColor: 'gray',
+    pathSegments: 2,
+    thresholds: { warn: 50, danger: 20 },
+    widgets: [{ type: 'context', enabled: true, label: '上下文', bar: true }],
+  };
+  assert.strictEqual(renderText(load('exceeds-200k.json'), cfg), '上下文 [██░░░░░░░░] 22% 220.6K');
 });
 
 test('missing-fields: 全缺 → 空行但不崩', () => {

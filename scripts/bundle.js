@@ -18,7 +18,7 @@ const path = require('node:path');
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, '..', 'statusline.js');
 // 注册顺序（惰性加载，顺序其实不敏感，但按依赖排列更直观）
-const MODULES = ['colors', 'format', 'git', 'config', 'widgets', 'statusline'];
+const MODULES = ['colors', 'format', 'git', 'usage', 'config', 'widgets', 'statusline'];
 
 function readModule(name) {
   let code = fs.readFileSync(path.join(SRC, name + '.js'), 'utf8');

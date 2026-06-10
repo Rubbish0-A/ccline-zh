@@ -13,11 +13,13 @@
 ## 效果
 
 ```
-#a1b2c3d4 │ Opus 4.8 │ …/ccline-zh/src │ ⎇ main │ +156/-23 │ 上下文 [███░░░░░░░] 34% │ 用量 1.3M↑45K↓ │ 5h 70%剩 7d 88%剩
- 会话短码      模型         目录          分支    代码增删     上下文进度条          token用量       额度剩余
+#a1b2c3d4 │ Fable 5 │ xhigh │ …/ccline-zh/src │ ⎇ main │ +156/-23 │ 上下文 [████░░░░░░] 43% │ 用量 1.9M↑29K↓ │ 5h 70%剩 7d 88%剩
+ 会话短码     模型     effort      目录           分支     代码增删      上下文进度条         token累计用量     额度剩余
 ```
 
 - **会话短码** `#a1b2c3d4`：多终端时一眼区分会话，`claude -r a1b2c3d4` 任意目录续上。
+- **effort 档位**：按工作流语义配色——xhigh 绿=常态、high 黄=可能是切模型后被静默重置、max 紫=高耗档。
+- **用量**：会话累计 token（含 cache，transcript 真实统计），与计费体感同量级——不是「当前上下文」那个小数字。
 - **进度条**：上下文/额度可视化，剩余越少越由绿→黄→红预警（85%+ 上下文 Claude 会明显变笨，提前看到很关键）。
 
 ## 为什么是它
@@ -85,12 +87,17 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows
 |---|---|---|---|
 | `session` | 会话短码 `#a1b2c3d4` | `session_id` / `transcript_path` | **开** |
 | `model` | 模型名 | `model.display_name` | **开** |
+| `effort` | effort 档位（语义配色，`colors` 可逐档覆盖） | `effort.level` | **开** |
 | `dir` | 目录（末 N 段，可选 `useProjectDir`） | `workspace.current_dir`/`project_dir` | **开** |
 | `git` | `⎇ 分支`（可选 dirty `*`） | 读 `.git/HEAD` | **开** |
-| `context` | 上下文进度条 `[███░░░] 34%` | `context_window.used_percentage` | **开** |
+| `context` | 上下文进度条 `[████░░] 43%`；1M 模型超 200K 后按 1M 重算并附绝对量 `[██░░░░] 22% 220.6K`（CC 此场景报的百分比恒 100% 不可信，#35059；变色阈值 `tokensWarn`/`tokensDanger` 默认 300K/400K） | `context_window.used_percentage` / `total_input_tokens` | **开** |
+| `bigContext` | `1M` / `>200K` 标记（200K 会话隐藏） | `context_window_size` / `exceeds_200k_tokens` | **开** |
 | `rateLimit` | `5h/7d 剩余%`（可选 `bar`） | `rate_limits.*.used_percentage` | **开** |
 | `lines` | `+增/-删` | `cost.total_lines_added/removed` | **开** |
-| `tokens` | 会话累计 `输入↑输出↓` | `context_window.total_input/output_tokens` | **开** |
+| `tokens` | 会话累计 `输入↑输出↓`（含 cache） | transcript JSONL 增量统计 | **开** |
+| `sessionName` | 会话名（`maxLen` 截断，默认 12 字） | `session_name` | 关 |
+| `fastMode` | `⚡fast`（开启才显示） | `fast_mode` | 关 |
+| `thinking` | `think`（开启才显示） | `thinking.enabled` | 关 |
 | `cost` | `$花费` | `cost.total_cost_usd` | 关 |
 | `duration` | 会话时长 | `cost.total_duration_ms` | 关 |
 | `blockTimer` | 额度重置倒计时 `5h 3h10m后重置` | `rate_limits.*.resets_at` | 关 |
@@ -101,8 +108,9 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows
 ## 已知限制
 
 - **「安装即用」需要跑一次 `setup`** — Claude Code 插件机制不能直接注入 statusLine（它是 `settings.json` 专属字段），所有 statusLine 插件都靠 setup 命令写配置。本项目用 setup 写**绝对路径**规避 [#52079](https://github.com/anthropics/claude-code/issues/52079)（`${CLAUDE_PLUGIN_ROOT}` 不注入 statusLine 子进程）。
-- **`tokens` 是会话累计值**（含 cache，不随 auto-compact 回退，[#13783](https://github.com/anthropics/claude-code/issues/13783)）。想看「当前上下文还剩多少」用 `context`。
-- **`rateLimit` / `blockTimer` 仅 claude.ai 订阅可见**，且需当次会话发生过至少一次 API 响应；API Key / 中转用户取不到，自动隐藏。
+- **`tokens` 是会话累计值**（含 cache，不随 auto-compact 回退），由 transcript JSONL 增量统计得出——CC 2.1.x 起 stdin 的 `total_*_tokens` 已变为「当前上下文内容」，不能再当累计用。只统计主会话，**不含 subagent**（agent-*.jsonl）的消耗。想看「当前上下文还剩多少」用 `context`。
+- **`rateLimit` / `blockTimer` 仅 claude.ai 订阅可见**，且需当次会话发生过至少一次 API 响应；API Key / **第三方中转**用户取不到（stdin 整个 `rate_limits` 字段缺失），自动隐藏——这不是 bug，是数据源没有。
+- **`cost` 是官方价口径**：按 Anthropic 牌价折算。走第三方中转的实际计费（倍率、汇率）以中转后台为准，此字段仅作量级参考。
 - **`git` 分支仅在 git 仓库目录显示**：当前目录（及其父级）没有 `.git` 时自动隐藏，不是 bug；`cd` 到任意 git 项目即出现。
 
 ## 卸载

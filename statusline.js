@@ -226,6 +226,153 @@ module.exports = { getBranch, isDirty, findGitPath, resolveGitDir };
 
 } };
 
+__mods['usage'] = { fn: function (module, exports, require) {
+'use strict';
+
+/**
+ * 会话累计 token 统计：从 transcript JSONL 增量读取 assistant usage 行累加。
+ *
+ * 背景：CC 2.1.x 起 stdin 的 context_window.total_*_tokens 语义已变为「当前
+ * 上下文内容」（= current_usage 之和），不再是会话累计。要拿到与计费体感一致
+ * 的真累计（含 cache），只能自己统计 transcript。
+ *
+ * 设计：
+ *  - 增量读取：state 缓存（tmpdir）记 { path, offset, tin, tout, lastId }，
+ *    每次刷新只读 offset 之后的新增字节；offset 只推进到最后一个完整行的行尾
+ *    （字节级找 '\n'，容忍 CC 正在写入的不完整尾行与 UTF-8 多字节字符）。
+ *  - 去重：同一条 assistant 消息的多个 content block 会拆成多行、各带相同
+ *    usage（实测一条消息最多重复 7 行）。重复行总是相邻 → 只需记住最后一个
+ *    已计入的 message.id。
+ *  - 兜底：任何异常返回 null（widget 隐藏约定）；state 损坏/截断/换文件一律
+ *    全量重算，绝不抛错。
+ */
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+/** 单次增量读取上限；超长会话冷启动只统计末尾部分，避免阻塞渲染。 */
+const MAX_READ_BYTES = 64 * 1024 * 1024;
+
+/** state 文件路径：按 session 前 16 位隔离，多会话并发互不干扰（碰撞→互踩重算，仅性能损失）。 */
+function statePath(sessionId, stateDir) {
+  const safe = String(sessionId || 'unknown').replace(/[^A-Za-z0-9-]/g, '').slice(0, 16) || 'unknown';
+  return path.join(stateDir, 'ccline-zh-usage-' + safe + '.json');
+}
+
+/** 读 state；缺失/损坏/字段非法 → null（调用方按全量重算处理）。 */
+function readState(file) {
+  try {
+    const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!s || typeof s !== 'object') return null;
+    if (typeof s.path !== 'string') return null;
+    if (!Number.isInteger(s.offset) || s.offset < 0) return null;
+    if (!Number.isFinite(s.tin) || !Number.isFinite(s.tout)) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+/** 从 buf 中解析完整行，返回新累计（不修改入参对象）。 */
+function consumeLines(buf, acc) {
+  const lastNl = buf.lastIndexOf(0x0a);
+  if (lastNl === -1) return { consumed: 0, tin: acc.tin, tout: acc.tout, lastId: acc.lastId };
+
+  let { tin, tout, lastId } = acc;
+  const lines = buf.slice(0, lastNl + 1).toString('utf8').split('\n');
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^﻿/, '').trim();
+    if (!line) continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue; // 完整但非 JSON 的行（不应出现），跳过不影响 offset
+    }
+    if (!obj || obj.type !== 'assistant') continue;
+    const msg = obj.message;
+    const u = msg && msg.usage;
+    if (!u || typeof u !== 'object') continue;
+    const id = msg.id;
+    // 同消息拆行去重：依赖「重复行总是相邻」（2.1.170 实测成立）；
+    // 若 CC 未来出现非相邻同 id 行，需改为有界 Set 去重
+    if (id && id === lastId) continue;
+    tin +=
+      (u.input_tokens || 0) +
+      (u.cache_creation_input_tokens || 0) +
+      (u.cache_read_input_tokens || 0);
+    tout += u.output_tokens || 0;
+    if (id) lastId = id;
+  }
+  return { consumed: lastNl + 1, tin, tout, lastId };
+}
+
+/**
+ * 会话累计 usage。
+ * @param {string} transcriptPath - stdin 的 transcript_path
+ * @param {string} sessionId - stdin 的 session_id（state 文件隔离用）
+ * @param {object} [opts] - { stateDir } 测试注入；默认 os.tmpdir()
+ * @returns {{tin:number, tout:number} | null} tin = input+cache_creation+cache_read 累计
+ */
+function cumulative(transcriptPath, sessionId, opts = {}) {
+  try {
+    if (!transcriptPath || typeof transcriptPath !== 'string') return null;
+    const stateDir = opts.stateDir || os.tmpdir();
+
+    let size;
+    try {
+      size = fs.statSync(transcriptPath).size;
+    } catch {
+      return null; // transcript 不存在：widget 隐藏
+    }
+
+    const sFile = statePath(sessionId, stateDir);
+    let state = readState(sFile);
+    // 换文件（resume）或被截断（重写）→ 全量重算
+    if (!state || state.path !== transcriptPath || state.offset > size) {
+      state = { path: transcriptPath, offset: 0, tin: 0, tout: 0, lastId: null };
+    }
+    if (size === state.offset) return { tin: state.tin, tout: state.tout };
+
+    // 超长增量保护：增量超限时只读末尾 MAX_READ_BYTES，**有意丢弃**
+    // [offset, size-MAX) 区间（接受有限低估，statusline 正常体量不可达）；
+    // 截断起点落在行中间时首个不完整行 parse 失败被自然跳过
+    const start = Math.max(state.offset, size - MAX_READ_BYTES);
+
+    const len = size - start;
+    const buf = Buffer.alloc(len);
+    const fd = fs.openSync(transcriptPath, 'r');
+    let bytesRead = 0;
+    try {
+      bytesRead = fs.readSync(fd, buf, 0, len, start);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    const next = consumeLines(buf.slice(0, bytesRead), state);
+    const newState = {
+      path: transcriptPath,
+      offset: start + next.consumed,
+      tin: next.tin,
+      tout: next.tout,
+      lastId: next.lastId,
+    };
+    try {
+      fs.writeFileSync(sFile, JSON.stringify(newState));
+    } catch {
+      // state 写失败仅损失下次的增量优化，不影响本次结果
+    }
+    return { tin: newState.tin, tout: newState.tout };
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { cumulative, statePath };
+
+} };
+
 __mods['config'] = { fn: function (module, exports, require) {
 'use strict';
 
@@ -251,16 +398,21 @@ const DEFAULT_CONFIG = {
   pathSegments: 2,
   thresholds: { warn: 50, danger: 20 },
   widgets: [
-    // ── 默认开（8 段：含最初要的 模型/代码增删/用量/额度 + 新增 会话短码/上下文进度条）──
+    // ── 默认开（10 段，其中 bigContext / rateLimit 条件显示）──
     { type: 'session', enabled: true, label: '', color: 'gray' },
     { type: 'model', enabled: true, label: '', color: 'cyan' },
+    { type: 'effort', enabled: true, label: '' },
     { type: 'dir', enabled: true, label: '', color: 'yellow', useProjectDir: false },
     { type: 'git', enabled: true, label: '', color: 'magenta', dirty: false, symbol: '⎇ ' },
     { type: 'lines', enabled: true, label: '' },
     { type: 'context', enabled: true, label: '上下文', bar: true },
+    { type: 'bigContext', enabled: true, label: '', color: 'magenta' },
     { type: 'tokens', enabled: true, label: '用量', color: 'blue' },
     { type: 'rateLimit', enabled: true, label: '', bar: false },
     // ── 默认关（按需在 ccline-zh.config.json 里设 enabled:true）──
+    { type: 'sessionName', enabled: false, label: '', color: 'white', maxLen: 12 },
+    { type: 'fastMode', enabled: false, label: '', color: 'yellow' },
+    { type: 'thinking', enabled: false, label: '', color: 'gray' },
     { type: 'cost', enabled: false, label: '', color: 'green' },
     { type: 'duration', enabled: false, label: '时长', color: 'gray' },
     { type: 'blockTimer', enabled: false, label: '', window: 'five_hour', color: 'gray' },
@@ -369,6 +521,7 @@ __mods['widgets'] = { fn: function (module, exports, require) {
 const { paint, colorByRemaining } = __require('colors');
 const { fmtCount, shortenPath, fmtDuration, bar, fmtCountdown } = __require('format');
 const gitlib = __require('git');
+const usagelib = __require('usage');
 
 /** label 前缀：有 label 则 "label "，否则空。 */
 function pre(cfg) {
@@ -435,20 +588,64 @@ function lines(input, cfg, ctx) {
   return pre(cfg) + parts.join('/');
 }
 
-/** token：会话累计 input↑/output↓（含 cache，不随 auto-compact 回退）。 */
+/**
+ * token：会话累计 input↑/output↓（含 cache，不随 auto-compact 回退）。
+ * ⚠️ CC 2.1.x 起 stdin 的 context_window.total_*_tokens 语义已变为「当前上下文
+ * 内容」（= current_usage 之和），不再是会话累计 —— 因此这里改为从 transcript
+ * JSONL 增量统计（见 usage.js），与计费体感一致。
+ * cfg.stateDir 仅测试注入用，生产走 tmpdir。
+ */
 function tokens(input, cfg, ctx) {
-  const cw = (input && input.context_window) || {};
-  const inTok = cw.total_input_tokens || 0;
-  const outTok = cw.total_output_tokens || 0;
-  if (inTok <= 0 && outTok <= 0) return null;
-  const body = (fmtCount(inTok) || '0') + '↑' + (fmtCount(outTok) || '0') + '↓';
+  const got = usagelib.cumulative(
+    input && input.transcript_path,
+    input && input.session_id,
+    { stateDir: cfg.stateDir }
+  );
+  if (!got || (got.tin <= 0 && got.tout <= 0)) return null;
+  const body = (fmtCount(got.tin) || '0') + '↑' + (fmtCount(got.tout) || '0') + '↓';
   return pre(cfg) + paint(cfg.color || 'blue', body, ctx.colorOn);
 }
 
-/** context：当前上下文已用百分比（与累计 token 不同概念）；颜色按剩余量。 */
+/**
+ * context：当前上下文已用百分比（与累计 token 不同概念）；颜色按剩余量。
+ * 口径（2.1.170 实测）：used_percentage = 上下文 input 侧 / context_window_size，
+ * 与官方一致，直接透传不自算。
+ *
+ * ⚠️ 弹性超窗失真：1M 原生模型（如 Fable 5）超过 200K 后，CC 仍报
+ * context_window_size=200000 且 used_percentage 被 cap 在 100（remaining=0），
+ * 同时置 exceeds_200k_tokens=true —— 上游 #35059 NOT_PLANNED 未修。此时
+ * 百分比无意义，切换为绝对量显示（如 "220.6K"），配色按绝对阈值
+ * （默认 300K warn / 400K danger，即 context rot 经验阈值；
+ * cfg.tokensWarn / cfg.tokensDanger 可调）。
+ * 显式 [1m]（window_size>=1M，百分比正确）与真·200K 用满（无 exceeds 标志，
+ * 100% 红色是对的）两种场景不受影响。
+ */
 function context(input, cfg, ctx) {
   const cw = input && input.context_window;
   if (!cw || typeof cw.used_percentage !== 'number') return null;
+
+  if (input.exceeds_200k_tokens === true && !(cw.context_window_size >= 1e6)) {
+    const cu = cw.current_usage || {};
+    const abs =
+      typeof cw.total_input_tokens === 'number' && cw.total_input_tokens > 0
+        ? cw.total_input_tokens
+        : (cu.input_tokens || 0) +
+          (cu.cache_creation_input_tokens || 0) +
+          (cu.cache_read_input_tokens || 0);
+    if (abs > 0) {
+      const warn = cfg.tokensWarn > 0 ? cfg.tokensWarn : 300000;
+      const danger = cfg.tokensDanger > 0 ? cfg.tokensDanger : 400000;
+      const color = abs >= danger ? 'red' : abs >= warn ? 'yellow' : 'green';
+      // 百分比按 1M 弹性窗口重算：能超 200K 仍在跑 = 实际运行在 1M 窗口
+      // （Anthropic 仅 200K/1M 两档，平台行为而非模型猜测）；颜色仍按绝对
+      // 阈值——1M 的"剩余%"会绿到 700K，远晚于 context rot 危险区
+      const pct = Math.min(100, Math.round((abs / 1e6) * 100));
+      let body = pct + '% ' + fmtCount(abs);
+      if (cfg.bar) body = bar(pct) + ' ' + body;
+      return pre(cfg) + paint(color, body, ctx.colorOn);
+    }
+  }
+
   const used = Math.round(cw.used_percentage);
   const remaining = 100 - used;
   const color = colorByRemaining(remaining, ctx.thresholds);
@@ -526,9 +723,76 @@ function version(input, cfg, ctx) {
   return pre(cfg) + paint(cfg.color || 'gray', String(v), ctx.colorOn);
 }
 
+/**
+ * effort 档位默认配色 —— 编码的是工作流语义，不是审美：
+ *   xhigh = 本机 baseline（绿=常态）；high = 4.8 产品默认，多半是切模型后被
+ *   静默重置（黄=该检查了）；max = 主动开的高耗档（紫=醒目）；low/medium
+ *   对 coding 工作流是异常档（红）。
+ * TODO(user): 这张表是你的 effort 运营策略，按自己的档位语义调整；
+ * 也可不改代码，在 config 里对 effort widget 配 colors: { high: 'red', ... } 覆盖。
+ */
+const EFFORT_COLORS = {
+  xhigh: 'green',
+  high: 'yellow',
+  max: 'magenta',
+  medium: 'red',
+  low: 'red',
+};
+
+/** effort 档位（effort.level）；config colors 可逐档覆盖默认表。 */
+function effort(input, cfg, ctx) {
+  const lv = input && input.effort && input.effort.level;
+  if (!lv || typeof lv !== 'string') return null;
+  const color = (cfg.colors && cfg.colors[lv]) || EFFORT_COLORS[lv] || 'cyan';
+  return pre(cfg) + paint(color, lv, ctx.colorOn);
+}
+
+/**
+ * 大上下文标记：1M 窗口显示 "1M"，普通窗口但已超 200K 显示 ">200K"；
+ * 常规 200K 会话返回 null 隐藏（条件显示，不占位）。
+ */
+function bigContext(input, cfg, ctx) {
+  const cw = (input && input.context_window) || {};
+  let tag = null;
+  if (typeof cw.context_window_size === 'number' && cw.context_window_size >= 1e6) {
+    tag = '1M';
+  } else if (input && input.exceeds_200k_tokens === true) {
+    tag = '>200K';
+  }
+  if (!tag) return null;
+  return pre(cfg) + paint(cfg.color || 'magenta', tag, ctx.colorOn);
+}
+
+/** 会话名（CC 自动起名）；按 code point 截断到 cfg.maxLen（默认 12）字。 */
+function sessionName(input, cfg, ctx) {
+  const name = input && input.session_name;
+  if (!name || typeof name !== 'string') return null;
+  const max = Number.isInteger(cfg.maxLen) && cfg.maxLen > 0 ? cfg.maxLen : 12;
+  const chars = Array.from(name);
+  const text = chars.length > max ? chars.slice(0, max).join('') + '…' : name;
+  return pre(cfg) + paint(cfg.color || 'white', text, ctx.colorOn);
+}
+
+/** fast mode 指示：开启时才显示（Opus 快速输出计费不同，值得醒目）。 */
+function fastMode(input, cfg, ctx) {
+  if (!input || input.fast_mode !== true) return null;
+  const symbol = typeof cfg.symbol === 'string' ? cfg.symbol : '⚡fast';
+  return pre(cfg) + paint(cfg.color || 'yellow', symbol, ctx.colorOn);
+}
+
+/** thinking 开关指示：enabled 时才显示。 */
+function thinking(input, cfg, ctx) {
+  const th = input && input.thinking;
+  if (!th || th.enabled !== true) return null;
+  const symbol = typeof cfg.symbol === 'string' ? cfg.symbol : 'think';
+  return pre(cfg) + paint(cfg.color || 'gray', symbol, ctx.colorOn);
+}
+
 module.exports = {
   session, model, dir, git, lines, tokens, context, rateLimit, cost, duration,
   blockTimer, worktree, outputStyle, version,
+  effort, bigContext, sessionName, fastMode, thinking,
+  EFFORT_COLORS,
 };
 
 } };

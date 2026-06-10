@@ -208,3 +208,134 @@ test('outputStyle / version', () => {
   assert.strictEqual(widgets.version({ version: '2.1.90' }, {}, NOCOLOR), '2.1.90');
   assert.strictEqual(widgets.version({}, {}, NOCOLOR), null);
 });
+
+// ───────────────────────── 2.1.170 新字段 widget ─────────────────────────
+const COLORON = { colorOn: true };
+
+test('effort: 档位文本 + 默认配色 + config colors 覆盖', () => {
+  assert.strictEqual(widgets.effort({ effort: { level: 'xhigh' } }, {}, NOCOLOR), 'xhigh');
+  // 默认表：xhigh=green(32) / high=yellow(33) / max=magenta(35)
+  assert.ok(widgets.effort({ effort: { level: 'xhigh' } }, {}, COLORON).startsWith('\x1b[32m'));
+  assert.ok(widgets.effort({ effort: { level: 'high' } }, {}, COLORON).startsWith('\x1b[33m'));
+  assert.ok(widgets.effort({ effort: { level: 'max' } }, {}, COLORON).startsWith('\x1b[35m'));
+  // config 覆盖单档
+  assert.ok(
+    widgets.effort({ effort: { level: 'high' } }, { colors: { high: 'red' } }, COLORON)
+      .startsWith('\x1b[31m')
+  );
+  // 未知档位回落 cyan，不报错
+  assert.ok(widgets.effort({ effort: { level: 'turbo' } }, {}, COLORON).startsWith('\x1b[36m'));
+  assert.strictEqual(widgets.effort({}, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.effort({ effort: {} }, {}, NOCOLOR), null);
+});
+
+test('context: 弹性超窗失真（exceeds_200k + window 仍 200K）→ 按 1M 重算百分比 + 绝对量 + 绝对阈值配色', () => {
+  const mk = (totalIn) => ({
+    context_window: {
+      used_percentage: 100,
+      context_window_size: 200000,
+      total_input_tokens: totalIn,
+    },
+    exceeds_200k_tokens: true,
+  });
+  // 220648/1M = 22%，bar 恢复显示；颜色按绝对阈值（<300K → green）
+  assert.strictEqual(
+    widgets.context(mk(220648), { bar: true }, NOCOLOR),
+    '[██░░░░░░░░] 22% 220.6K'
+  );
+  assert.strictEqual(widgets.context(mk(220648), {}, NOCOLOR), '22% 220.6K');
+  assert.ok(widgets.context(mk(220648), {}, COLORON).startsWith('\x1b[32m'));
+  // 跨 warn/danger 阈值变色（默认 300K/400K），百分比仍按 1M
+  assert.ok(widgets.context(mk(350000), {}, COLORON).startsWith('\x1b[33m'));
+  assert.ok(widgets.context(mk(450000), {}, COLORON).startsWith('\x1b[31m'));
+  assert.strictEqual(widgets.context(mk(450000), {}, NOCOLOR), '45% 450.0K');
+  // 阈值可配
+  assert.ok(
+    widgets.context(mk(220648), { tokensWarn: 100000, tokensDanger: 500000 }, COLORON)
+      .startsWith('\x1b[33m')
+  );
+  // total 缺失时回退 current_usage 求和
+  const viaUsage = {
+    context_window: {
+      used_percentage: 100,
+      context_window_size: 200000,
+      current_usage: { input_tokens: 189, cache_creation_input_tokens: 3609, cache_read_input_tokens: 216850 },
+    },
+    exceeds_200k_tokens: true,
+  };
+  assert.strictEqual(
+    widgets.context(viaUsage, {}, { ...NOCOLOR, thresholds: { warn: 50, danger: 20 } }),
+    '22% 220.6K'
+  );
+});
+
+test('context: 显式 1M 窗口与真·200K 用满不受绝对量模式影响', () => {
+  const t = { colorOn: false, thresholds: { warn: 50, danger: 20 } };
+  // 显式 [1m]：window_size=1M，百分比正确，即使 exceeds=true 也走百分比
+  const oneM = {
+    context_window: { used_percentage: 22, context_window_size: 1000000 },
+    exceeds_200k_tokens: true,
+  };
+  assert.strictEqual(widgets.context(oneM, {}, t), '22%');
+  // 真·200K 模型用满（无 exceeds 标志）：100% 红色是正确警示
+  const full = { context_window: { used_percentage: 100, context_window_size: 200000 } };
+  assert.strictEqual(widgets.context(full, {}, t), '100%');
+});
+
+test('bigContext: 1M 窗口 / exceeds_200k / 常规会话隐藏', () => {
+  assert.strictEqual(
+    widgets.bigContext({ context_window: { context_window_size: 1000000 } }, {}, NOCOLOR), '1M'
+  );
+  assert.strictEqual(
+    widgets.bigContext(
+      { context_window: { context_window_size: 200000 }, exceeds_200k_tokens: true }, {}, NOCOLOR
+    ),
+    '>200K'
+  );
+  assert.strictEqual(
+    widgets.bigContext(
+      { context_window: { context_window_size: 200000 }, exceeds_200k_tokens: false }, {}, NOCOLOR
+    ),
+    null
+  );
+  assert.strictEqual(widgets.bigContext({}, {}, NOCOLOR), null);
+});
+
+test('sessionName: code point 截断（中文安全）+ maxLen 配置', () => {
+  assert.strictEqual(
+    widgets.sessionName({ session_name: '短名' }, {}, NOCOLOR), '短名'
+  );
+  assert.strictEqual(
+    widgets.sessionName({ session_name: '一二三四五六七八九十一二三' }, {}, NOCOLOR),
+    '一二三四五六七八九十一二…'
+  );
+  assert.strictEqual(
+    widgets.sessionName({ session_name: 'abcdefgh' }, { maxLen: 4 }, NOCOLOR), 'abcd…'
+  );
+  assert.strictEqual(widgets.sessionName({}, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.sessionName({ session_name: '' }, {}, NOCOLOR), null);
+});
+
+test('fastMode / thinking: 开启才显示', () => {
+  assert.strictEqual(widgets.fastMode({ fast_mode: true }, {}, NOCOLOR), '⚡fast');
+  assert.strictEqual(widgets.fastMode({ fast_mode: false }, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.fastMode({}, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.thinking({ thinking: { enabled: true } }, {}, NOCOLOR), 'think');
+  assert.strictEqual(widgets.thinking({ thinking: { enabled: false } }, {}, NOCOLOR), null);
+  assert.strictEqual(widgets.thinking({}, {}, NOCOLOR), null);
+});
+
+test('tokens: transcript 真累计（widget 级，stateDir 注入）', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccline-tokens-test-'));
+  const transcript = path.join(dir, 't.jsonl');
+  fs.writeFileSync(
+    transcript,
+    '{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":1500,"output_tokens":300,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  );
+  const out = widgets.tokens(
+    { transcript_path: transcript, session_id: 'unit-test' }, { stateDir: dir }, NOCOLOR
+  );
+  assert.strictEqual(out, '1.5K↑300↓');
+  // 无 transcript → 隐藏
+  assert.strictEqual(widgets.tokens({}, { stateDir: dir }, NOCOLOR), null);
+});
