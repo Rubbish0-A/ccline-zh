@@ -635,56 +635,90 @@ function tokens(input, cfg, ctx) {
   return pre(cfg) + paint(cfg.color || 'blue', body, ctx.colorOn);
 }
 
+/** 颜色危险度排序（取更危险者用）。 */
+const COLOR_SEVERITY = { green: 0, yellow: 1, red: 2 };
+
+/** 两色取更危险者；b 为 null 时返回 a。 */
+function moreDangerous(a, b) {
+  if (!b) return a;
+  return COLOR_SEVERITY[b] > COLOR_SEVERITY[a] ? b : a;
+}
+
 /**
- * context：当前上下文已用百分比（与累计 token 不同概念）；颜色按剩余量。
+ * 当前上下文绝对量：current_usage 求和优先（语义明确=当前上下文）；
+ * total_input_tokens 仅 fallback——该字段语义已变过一次，若未来再变回累计，
+ * 优先读它会静默给错数据（双轨 review 实锤的防回归脆弱点）。
+ */
+function contextAbs(cw) {
+  const cu = cw.current_usage || {};
+  const fromUsage =
+    (cu.input_tokens || 0) +
+    (cu.cache_creation_input_tokens || 0) +
+    (cu.cache_read_input_tokens || 0);
+  if (fromUsage > 0) return fromUsage;
+  if (typeof cw.total_input_tokens === 'number' && cw.total_input_tokens > 0) {
+    return cw.total_input_tokens;
+  }
+  return 0;
+}
+
+/**
+ * 绝对量 context rot 警戒色。窗口空间之外的第二条独立风险刻度：模型质量
+ * 随绝对 token 量劣化（经验线 300K 起下滑 / 400K 显著，与窗口多大无关）。
+ * 默认启用（300K 黄 / 400K 红）；config 给 context 配 `tokensWarn: 0` 整条关闭。
+ */
+function absRotColor(abs, cfg) {
+  if (abs <= 0 || cfg.tokensWarn === 0) return null;
+  const warn = cfg.tokensWarn > 0 ? cfg.tokensWarn : 300000;
+  const danger = cfg.tokensDanger > 0 ? cfg.tokensDanger : 400000;
+  if (abs >= danger) return 'red';
+  if (abs >= warn) return 'yellow';
+  return 'green';
+}
+
+/**
+ * context：当前上下文已用百分比（与累计 token 不同概念）。
  * 口径（2.1.170 实测）：used_percentage = 上下文 input 侧 / context_window_size，
  * 与官方一致，直接透传不自算。
+ *
+ * 配色（v0.3.1 拍板）：相对剩余阈值（窗口空间）与绝对量警戒线（模型质量）
+ * **取更危险者**——两条独立风险任一亮黄/红都该被看见：200K 窗口由相对刻度
+ * 保护（快用满变红），1M 窗口由绝对刻度保护（400K 劣化区变红，纯相对要到
+ * 800K 才红、太晚）；且裸 id 弹性模式与显式 [1m] 模式天然同色。
  *
  * ⚠️ 弹性超窗失真：1M 原生模型（如 Fable 5）超过 200K 后，CC 仍报
  * context_window_size=200000 且 used_percentage 被 cap 在 100（remaining=0），
  * 同时置 exceeds_200k_tokens=true —— 上游 #35059 NOT_PLANNED 未修。此时
- * 百分比无意义，切换为绝对量显示（如 "220.6K"），配色按绝对阈值
- * （默认 300K warn / 400K danger，即 context rot 经验阈值；
- * cfg.tokensWarn / cfg.tokensDanger 可调）。
- * 显式 [1m]（window_size>=1M，百分比正确）与真·200K 用满（无 exceeds 标志，
- * 100% 红色是对的）两种场景不受影响。
+ * 按 1M 弹性窗口重算百分比并附绝对量（如 "41% 406.8K"）。
+ * 显式 [1m]（window_size>=1M，百分比正确）与真·200K 用满（无 exceeds 标志）
+ * 走普通路径。
  */
 function context(input, cfg, ctx) {
   const cw = input && input.context_window;
   if (!cw || typeof cw.used_percentage !== 'number') return null;
+  const abs = contextAbs(cw);
 
-  if (input.exceeds_200k_tokens === true && !(cw.context_window_size >= ELASTIC_WINDOW)) {
-    // 优先 current_usage 求和（语义明确=当前上下文）；total_input_tokens 仅
-    // fallback——该字段语义已变过一次，若未来再变回累计，优先读它会静默
-    // 显示错误数据（双轨 review 实锤的最大防回归脆弱点）
-    const cu = cw.current_usage || {};
-    const fromUsage =
-      (cu.input_tokens || 0) +
-      (cu.cache_creation_input_tokens || 0) +
-      (cu.cache_read_input_tokens || 0);
-    const abs =
-      fromUsage > 0
-        ? fromUsage
-        : typeof cw.total_input_tokens === 'number' && cw.total_input_tokens > 0
-          ? cw.total_input_tokens
-          : 0;
-    if (abs > 0) {
-      const warn = cfg.tokensWarn > 0 ? cfg.tokensWarn : 300000;
-      const danger = cfg.tokensDanger > 0 ? cfg.tokensDanger : 400000;
-      const color = abs >= danger ? 'red' : abs >= warn ? 'yellow' : 'green';
-      // 百分比按弹性窗口重算：能超 200K 仍在跑 = 实际运行在 1M 窗口
-      // （平台行为而非模型猜测）；颜色仍按绝对阈值——1M 的"剩余%"会绿到
-      // 700K，远晚于 context rot 危险区
-      const pct = Math.min(100, Math.round((abs / ELASTIC_WINDOW) * 100));
-      let body = pct + '% ' + fmtCount(abs);
-      if (cfg.bar) body = bar(pct) + ' ' + body;
-      return pre(cfg) + paint(color, body, ctx.colorOn);
-    }
+  if (
+    input.exceeds_200k_tokens === true &&
+    !(cw.context_window_size >= ELASTIC_WINDOW) &&
+    abs > 0
+  ) {
+    // 百分比按弹性窗口重算：能超 200K 仍在跑 = 实际运行在 1M 窗口
+    const pct = Math.min(100, Math.round((abs / ELASTIC_WINDOW) * 100));
+    const color = moreDangerous(
+      colorByRemaining(100 - pct, ctx.thresholds),
+      absRotColor(abs, cfg)
+    );
+    let body = pct + '% ' + fmtCount(abs);
+    if (cfg.bar) body = bar(pct) + ' ' + body;
+    return pre(cfg) + paint(color, body, ctx.colorOn);
   }
 
   const used = Math.round(cw.used_percentage);
-  const remaining = 100 - used;
-  const color = colorByRemaining(remaining, ctx.thresholds);
+  const color = moreDangerous(
+    colorByRemaining(100 - used, ctx.thresholds),
+    absRotColor(abs, cfg)
+  );
   let body = used + '%';
   if (cfg.bar) body = bar(used) + ' ' + body;
   return pre(cfg) + paint(color, body, ctx.colorOn);

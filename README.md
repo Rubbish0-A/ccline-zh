@@ -90,7 +90,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows
 | `effort` | effort 档位（语义配色，`colors` 可逐档覆盖） | `effort.level` | **开** |
 | `dir` | 目录（末 N 段，可选 `useProjectDir`） | `workspace.current_dir`/`project_dir` | **开** |
 | `git` | `⎇ 分支`（可选 dirty `*`） | 读 `.git/HEAD` | **开** |
-| `context` | 上下文进度条 `[████░░] 43%`；1M 模型超 200K 后按 1M 重算并附绝对量 `[██░░░░] 22% 220.6K`（CC 此场景报的百分比恒 100% 不可信，#35059；变色阈值 `tokensWarn`/`tokensDanger` 默认 300K/400K） | `context_window.used_percentage` / `total_input_tokens` | **开** |
+| `context` | 上下文进度条 `[████░░] 43%`；1M 模型超 200K 后按 1M 重算并附绝对量 `[████░░] 41% 406.8K`（CC 此场景报的百分比恒 100% 不可信，#35059）。配色 = 相对剩余阈值 × 绝对警戒线（默认 300K 黄/400K 红，context-rot 经验线）**取更危险者**；`tokensWarn`/`tokensDanger` 可调，配 0 关闭 | `context_window.used_percentage` / `current_usage` | **开** |
 | `bigContext` | `1M` / `>200K` 标记（200K 会话隐藏） | `context_window_size` / `exceeds_200k_tokens` | **开** |
 | `rateLimit` | `5h/7d 剩余%`（可选 `bar`） | `rate_limits.*.used_percentage` | **开** |
 | `lines` | `+增/-删` | `cost.total_lines_added/removed` | **开** |

@@ -229,7 +229,7 @@ test('effort: 档位文本 + 默认配色 + config colors 覆盖', () => {
   assert.strictEqual(widgets.effort({ effort: {} }, {}, NOCOLOR), null);
 });
 
-test('context: 弹性超窗失真（exceeds_200k + window 仍 200K）→ 按 1M 重算百分比 + 绝对量 + 绝对阈值配色', () => {
+test('context: 弹性超窗失真（exceeds_200k + window 仍 200K）→ 按 1M 重算百分比 + 绝对量', () => {
   const mk = (totalIn) => ({
     context_window: {
       used_percentage: 100,
@@ -238,21 +238,25 @@ test('context: 弹性超窗失真（exceeds_200k + window 仍 200K）→ 按 1M 
     },
     exceeds_200k_tokens: true,
   });
-  // 220648/1M = 22%，bar 恢复显示；颜色按绝对阈值（<300K → green）
+  // 220648/1M = 22%，bar 恢复显示
   assert.strictEqual(
     widgets.context(mk(220648), { bar: true }, NOCOLOR),
     '[██░░░░░░░░] 22% 220.6K'
   );
   assert.strictEqual(widgets.context(mk(220648), {}, NOCOLOR), '22% 220.6K');
+  // 配色 = 相对剩余阈值 与 绝对警戒线（默认 300K/400K）取更危险者（v0.3.1 拍板）：
+  // 220.6K：两线都绿 → 绿；350K：相对绿+绝对黄 → 黄；450K：相对绿+绝对红 → 红；
+  // 850K：相对红 → 红
   assert.ok(widgets.context(mk(220648), {}, COLORON).startsWith('\x1b[32m'));
-  // 跨 warn/danger 阈值变色（默认 300K/400K），百分比仍按 1M
   assert.ok(widgets.context(mk(350000), {}, COLORON).startsWith('\x1b[33m'));
   assert.ok(widgets.context(mk(450000), {}, COLORON).startsWith('\x1b[31m'));
+  assert.ok(widgets.context(mk(850000), {}, COLORON).startsWith('\x1b[31m'));
   assert.strictEqual(widgets.context(mk(450000), {}, NOCOLOR), '45% 450.0K');
-  // 阈值可配
+  // tokensWarn: 0 → 整条绝对线关闭，回到纯相对（450K 剩 55% → 绿）
+  assert.ok(widgets.context(mk(450000), { tokensWarn: 0 }, COLORON).startsWith('\x1b[32m'));
+  // 阈值可配（warn 调低到 100K → 220.6K 变黄）
   assert.ok(
-    widgets.context(mk(220648), { tokensWarn: 100000, tokensDanger: 500000 }, COLORON)
-      .startsWith('\x1b[33m')
+    widgets.context(mk(220648), { tokensWarn: 100000 }, COLORON).startsWith('\x1b[33m')
   );
   // total 缺失时由 current_usage 求和
   const viaUsage = {
@@ -284,7 +288,7 @@ test('context: 弹性超窗失真（exceeds_200k + window 仍 200K）→ 按 1M 
   );
 });
 
-test('context: 显式 1M 窗口与真·200K 用满不受绝对量模式影响', () => {
+test('context: 显式 1M 窗口与真·200K 用满走普通路径', () => {
   const t = { colorOn: false, thresholds: { warn: 50, danger: 20 } };
   // 显式 [1m]：window_size=1M，百分比正确，即使 exceeds=true 也走百分比
   const oneM = {
@@ -295,6 +299,31 @@ test('context: 显式 1M 窗口与真·200K 用满不受绝对量模式影响', 
   // 真·200K 模型用满（无 exceeds 标志）：100% 红色是正确警示
   const full = { context_window: { used_percentage: 100, context_window_size: 200000 } };
   assert.strictEqual(widgets.context(full, {}, t), '100%');
+});
+
+test('context: [1m] 普通路径同样吃绝对警戒线（跨模式同色）', () => {
+  const tCol = { colorOn: true, thresholds: { warn: 50, danger: 20 } };
+  // [1m] 模式 41%（约 406K）：相对剩 59 → 绿，但绝对 ≥400K → 红（更危险者胜）
+  const oneM406 = {
+    context_window: {
+      used_percentage: 41,
+      context_window_size: 1000000,
+      current_usage: { input_tokens: 100, cache_creation_input_tokens: 6800, cache_read_input_tokens: 400000 },
+    },
+  };
+  assert.ok(widgets.context(oneM406, {}, tCol).startsWith('\x1b[31m'));
+  // 同状态在裸 id 弹性模式下也是红 → 一致
+  const elastic406 = {
+    context_window: {
+      used_percentage: 100,
+      context_window_size: 200000,
+      current_usage: { input_tokens: 100, cache_creation_input_tokens: 6800, cache_read_input_tokens: 400000 },
+    },
+    exceeds_200k_tokens: true,
+  };
+  assert.ok(widgets.context(elastic406, {}, tCol).startsWith('\x1b[31m'));
+  // tokensWarn: 0 关闭后 [1m] 41% 回到相对刻度 → 绿
+  assert.ok(widgets.context(oneM406, { tokensWarn: 0 }, tCol).startsWith('\x1b[32m'));
 });
 
 test('bigContext: 1M 窗口 / exceeds_200k / 常规会话隐藏', () => {
