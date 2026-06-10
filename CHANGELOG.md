@@ -35,10 +35,21 @@
 - `fastMode` widget（默认关）：`fast_mode` 开启时显示 `⚡fast`。
 - `thinking` widget（默认关）：thinking 开启时显示标记。
 
+### 健壮性（双轨 review：opus subagent + codex 交叉审查后修复）
+- context 弹性分支取值改为 **current_usage 优先、total_input_tokens 仅
+  fallback**——该字段语义已变过一次，若未来再翻转回累计，优先读它会静默
+  显示错误数据（review 实锤的最大防回归脆弱点）。
+- usage 统计加非数值字段校验（`Number.isFinite`），防 CC schema 变化引入
+  NaN / 字符串拼接污染累计。
+- 超长 transcript（>64MB 增量）读取截断时，「用量」加 `≥` 前缀以下界形式
+  诚实呈现，不再静默低估；截断标记随 state 持久化。
+- 1M 弹性窗口提取为常量 `ELASTIC_WINDOW`（未来若出现中间档窗口，唯一锚点）。
+
 ### 文档
 - README「已知限制」补充第三方中转场景：`rate_limits` 整字段缺失（额度段
   自动隐藏）、`cost` 为官方价口径（中转计费以中转后台为准）。
-- fixtures 升级到 2.1.170 真实 schema；新增 usage 模块 17 用例（共 52）。
+- fixtures 升级到 2.1.170 真实 schema；新增 usage 模块 12 用例及弹性超窗 /
+  新 widget 用例，测试 35 → 58。
 
 ## [0.2.1] - 2026-06-08
 

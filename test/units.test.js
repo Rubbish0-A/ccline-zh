@@ -254,7 +254,7 @@ test('context: 弹性超窗失真（exceeds_200k + window 仍 200K）→ 按 1M 
     widgets.context(mk(220648), { tokensWarn: 100000, tokensDanger: 500000 }, COLORON)
       .startsWith('\x1b[33m')
   );
-  // total 缺失时回退 current_usage 求和
+  // total 缺失时由 current_usage 求和
   const viaUsage = {
     context_window: {
       used_percentage: 100,
@@ -265,6 +265,21 @@ test('context: 弹性超窗失真（exceeds_200k + window 仍 200K）→ 按 1M 
   };
   assert.strictEqual(
     widgets.context(viaUsage, {}, { ...NOCOLOR, thresholds: { warn: 50, danger: 20 } }),
+    '22% 220.6K'
+  );
+  // 取值优先级：current_usage 与 total 并存且不一致 → 信 current_usage
+  // （total_*_tokens 语义已变过一次，若再变回累计，优先读它会显示错数据）
+  const both = {
+    context_window: {
+      used_percentage: 100,
+      context_window_size: 200000,
+      total_input_tokens: 5000000, // 假想：语义再翻转回「会话累计」
+      current_usage: { input_tokens: 189, cache_creation_input_tokens: 3609, cache_read_input_tokens: 216850 },
+    },
+    exceeds_200k_tokens: true,
+  };
+  assert.strictEqual(
+    widgets.context(both, {}, { ...NOCOLOR, thresholds: { warn: 50, danger: 20 } }),
     '22% 220.6K'
   );
 });

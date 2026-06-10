@@ -11,6 +11,13 @@ const { fmtCount, shortenPath, fmtDuration, bar, fmtCountdown } = require('./for
 const gitlib = require('./git');
 const usagelib = require('./usage');
 
+/**
+ * 弹性扩窗的真实窗口大小。CC 在 exceeds_200k_tokens=true 时仍报 200K 窗口
+ * （上游 #35059），实际运行在 1M——Anthropic 当前仅 200K/1M 两档；若未来
+ * 出现中间档（如 500K 弹性窗），此常量是唯一需要改的锚点。
+ */
+const ELASTIC_WINDOW = 1e6;
+
 /** label 前缀：有 label 则 "label "，否则空。 */
 function pre(cfg) {
   return cfg.label ? cfg.label + ' ' : '';
@@ -90,7 +97,10 @@ function tokens(input, cfg, ctx) {
     { stateDir: cfg.stateDir }
   );
   if (!got || (got.tin <= 0 && got.tout <= 0)) return null;
-  const body = (fmtCount(got.tin) || '0') + '↑' + (fmtCount(got.tout) || '0') + '↓';
+  // truncated=超长 transcript 发生过读取截断，数值是下界 → ≥ 前缀诚实呈现
+  const prefix = got.truncated ? '≥' : '';
+  const body =
+    prefix + (fmtCount(got.tin) || '0') + '↑' + (fmtCount(got.tout) || '0') + '↓';
   return pre(cfg) + paint(cfg.color || 'blue', body, ctx.colorOn);
 }
 
@@ -112,22 +122,29 @@ function context(input, cfg, ctx) {
   const cw = input && input.context_window;
   if (!cw || typeof cw.used_percentage !== 'number') return null;
 
-  if (input.exceeds_200k_tokens === true && !(cw.context_window_size >= 1e6)) {
+  if (input.exceeds_200k_tokens === true && !(cw.context_window_size >= ELASTIC_WINDOW)) {
+    // 优先 current_usage 求和（语义明确=当前上下文）；total_input_tokens 仅
+    // fallback——该字段语义已变过一次，若未来再变回累计，优先读它会静默
+    // 显示错误数据（双轨 review 实锤的最大防回归脆弱点）
     const cu = cw.current_usage || {};
+    const fromUsage =
+      (cu.input_tokens || 0) +
+      (cu.cache_creation_input_tokens || 0) +
+      (cu.cache_read_input_tokens || 0);
     const abs =
-      typeof cw.total_input_tokens === 'number' && cw.total_input_tokens > 0
-        ? cw.total_input_tokens
-        : (cu.input_tokens || 0) +
-          (cu.cache_creation_input_tokens || 0) +
-          (cu.cache_read_input_tokens || 0);
+      fromUsage > 0
+        ? fromUsage
+        : typeof cw.total_input_tokens === 'number' && cw.total_input_tokens > 0
+          ? cw.total_input_tokens
+          : 0;
     if (abs > 0) {
       const warn = cfg.tokensWarn > 0 ? cfg.tokensWarn : 300000;
       const danger = cfg.tokensDanger > 0 ? cfg.tokensDanger : 400000;
       const color = abs >= danger ? 'red' : abs >= warn ? 'yellow' : 'green';
-      // 百分比按 1M 弹性窗口重算：能超 200K 仍在跑 = 实际运行在 1M 窗口
-      // （Anthropic 仅 200K/1M 两档，平台行为而非模型猜测）；颜色仍按绝对
-      // 阈值——1M 的"剩余%"会绿到 700K，远晚于 context rot 危险区
-      const pct = Math.min(100, Math.round((abs / 1e6) * 100));
+      // 百分比按弹性窗口重算：能超 200K 仍在跑 = 实际运行在 1M 窗口
+      // （平台行为而非模型猜测）；颜色仍按绝对阈值——1M 的"剩余%"会绿到
+      // 700K，远晚于 context rot 危险区
+      const pct = Math.min(100, Math.round((abs / ELASTIC_WINDOW) * 100));
       let body = pct + '% ' + fmtCount(abs);
       if (cfg.bar) body = bar(pct) + ' ' + body;
       return pre(cfg) + paint(color, body, ctx.colorOn);

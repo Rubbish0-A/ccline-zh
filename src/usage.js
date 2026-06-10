@@ -8,14 +8,21 @@
  * 的真累计（含 cache），只能自己统计 transcript。
  *
  * 设计：
- *  - 增量读取：state 缓存（tmpdir）记 { path, offset, tin, tout, lastId }，
- *    每次刷新只读 offset 之后的新增字节；offset 只推进到最后一个完整行的行尾
- *    （字节级找 '\n'，容忍 CC 正在写入的不完整尾行与 UTF-8 多字节字符）。
+ *  - 增量读取：state 缓存（tmpdir）记 { path, offset, tin, tout, lastId,
+ *    truncated }，每次刷新只读 offset 之后的新增字节；offset 只推进到最后
+ *    一个完整行的行尾（字节级找 '\n'——\n 是单字节且 UTF-8 多字节序列不含
+ *    0x0A，故 offset 永远落在字符边界）。
  *  - 去重：同一条 assistant 消息的多个 content block 会拆成多行、各带相同
- *    usage（实测一条消息最多重复 7 行）。重复行总是相邻 → 只需记住最后一个
- *    已计入的 message.id。
+ *    usage（实测一条消息最多重复 7 行）。重复行总是相邻（2.1.170 实测契约，
+ *    若失效需改有界 Set）→ 只需记住最后一个已计入的 message.id。
+ *  - 截断诚实：增量超过读取上限时只统计末尾部分（有限低估），但会把
+ *    truncated 标记持久化并返回，调用方应以「下界」形式展示（如 ≥ 前缀），
+ *    不静默冒充精确值。
  *  - 兜底：任何异常返回 null（widget 隐藏约定）；state 损坏/截断/换文件一律
- *    全量重算，绝不抛错。
+ *    全量重算，绝不抛错；非数值 usage 字段按 0 计，防 NaN/字符串拼接污染。
+ *
+ * 已知限制（接受的设计权衡）：transcript 被外部原位重写且新 size ≥ 旧 offset
+ * 时无法察觉（transcript 由 CC 独占 append-only 写入，正常不会发生）。
  */
 
 const fs = require('node:fs');
@@ -25,13 +32,18 @@ const path = require('node:path');
 /** 单次增量读取上限；超长会话冷启动只统计末尾部分，避免阻塞渲染。 */
 const MAX_READ_BYTES = 64 * 1024 * 1024;
 
+/** 非有限数（字符串/缺失/NaN）一律按 0 计。 */
+function num(v) {
+  return Number.isFinite(v) ? v : 0;
+}
+
 /** state 文件路径：按 session 前 16 位隔离，多会话并发互不干扰（碰撞→互踩重算，仅性能损失）。 */
 function statePath(sessionId, stateDir) {
   const safe = String(sessionId || 'unknown').replace(/[^A-Za-z0-9-]/g, '').slice(0, 16) || 'unknown';
   return path.join(stateDir, 'ccline-zh-usage-' + safe + '.json');
 }
 
-/** 读 state；缺失/损坏/字段非法 → null（调用方按全量重算处理）。 */
+/** 读 state；缺失/损坏/字段非法 → null（调用方按全量重算处理）。truncated 为可选兼容字段。 */
 function readState(file) {
   try {
     const s = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -69,11 +81,8 @@ function consumeLines(buf, acc) {
     // 同消息拆行去重：依赖「重复行总是相邻」（2.1.170 实测成立）；
     // 若 CC 未来出现非相邻同 id 行，需改为有界 Set 去重
     if (id && id === lastId) continue;
-    tin +=
-      (u.input_tokens || 0) +
-      (u.cache_creation_input_tokens || 0) +
-      (u.cache_read_input_tokens || 0);
-    tout += u.output_tokens || 0;
+    tin += num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
+    tout += num(u.output_tokens);
     if (id) lastId = id;
   }
   return { consumed: lastNl + 1, tin, tout, lastId };
@@ -83,13 +92,19 @@ function consumeLines(buf, acc) {
  * 会话累计 usage。
  * @param {string} transcriptPath - stdin 的 transcript_path
  * @param {string} sessionId - stdin 的 session_id（state 文件隔离用）
- * @param {object} [opts] - { stateDir } 测试注入；默认 os.tmpdir()
- * @returns {{tin:number, tout:number} | null} tin = input+cache_creation+cache_read 累计
+ * @param {object} [opts] - { stateDir, maxReadBytes } 测试注入；默认 tmpdir / 64MB
+ * @returns {{tin:number, tout:number, truncated:boolean} | null}
+ *   tin = input+cache_creation+cache_read 累计；truncated=true 表示历史上发生过
+ *   读取截断，数值是下界而非精确值
  */
 function cumulative(transcriptPath, sessionId, opts = {}) {
   try {
     if (!transcriptPath || typeof transcriptPath !== 'string') return null;
     const stateDir = opts.stateDir || os.tmpdir();
+    const maxRead =
+      Number.isInteger(opts.maxReadBytes) && opts.maxReadBytes > 0
+        ? opts.maxReadBytes
+        : MAX_READ_BYTES;
 
     let size;
     try {
@@ -102,14 +117,17 @@ function cumulative(transcriptPath, sessionId, opts = {}) {
     let state = readState(sFile);
     // 换文件（resume）或被截断（重写）→ 全量重算
     if (!state || state.path !== transcriptPath || state.offset > size) {
-      state = { path: transcriptPath, offset: 0, tin: 0, tout: 0, lastId: null };
+      state = { path: transcriptPath, offset: 0, tin: 0, tout: 0, lastId: null, truncated: false };
     }
-    if (size === state.offset) return { tin: state.tin, tout: state.tout };
+    if (size === state.offset) {
+      return { tin: state.tin, tout: state.tout, truncated: !!state.truncated };
+    }
 
-    // 超长增量保护：增量超限时只读末尾 MAX_READ_BYTES，**有意丢弃**
-    // [offset, size-MAX) 区间（接受有限低估，statusline 正常体量不可达）；
+    // 超长增量保护：增量超限时只读末尾 maxRead 字节，**有意丢弃**
+    // [offset, size-maxRead) 区间——丢弃即置 truncated，结果以下界呈现；
     // 截断起点落在行中间时首个不完整行 parse 失败被自然跳过
-    const start = Math.max(state.offset, size - MAX_READ_BYTES);
+    const start = Math.max(state.offset, size - maxRead);
+    const truncated = !!state.truncated || start > state.offset;
 
     const len = size - start;
     const buf = Buffer.alloc(len);
@@ -128,13 +146,14 @@ function cumulative(transcriptPath, sessionId, opts = {}) {
       tin: next.tin,
       tout: next.tout,
       lastId: next.lastId,
+      truncated,
     };
     try {
       fs.writeFileSync(sFile, JSON.stringify(newState));
     } catch {
       // state 写失败仅损失下次的增量优化，不影响本次结果
     }
-    return { tin: newState.tin, tout: newState.tout };
+    return { tin: newState.tin, tout: newState.tout, truncated };
   } catch {
     return null;
   }
